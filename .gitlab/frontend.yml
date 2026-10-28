@@ -1,0 +1,18 @@
+# ==========================================
+# 修复后的前端子流水线：.gitlab/frontend.yml
+# ==========================================
+stages:
+  - build
+
+frontend-build:
+  stage: build
+  image: node:20
+  script:
+    - cd frontend
+    - npm install
+    - npm run build
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"

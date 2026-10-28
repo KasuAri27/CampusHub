@@ -1,0 +1,33 @@
+# ==========================================
+# 修复后的后端子流水线：.gitlab/backend.yml
+# ==========================================
+stages:
+  - lint
+  - build
+  - test
+
+code-lint:
+  stage: lint
+  image: maven:3.9.9-eclipse-temurin-17
+  script:
+    - cd backend
+    - mvn compile
+
+backend-build:
+  stage: build
+  image: maven:3.9.9-eclipse-temurin-17
+  script:
+    - cd backend
+    - mvn clean package -DskipTests
+
+backend-test:
+  stage: test
+  image: maven:3.9.9-eclipse-temurin-17
+  script:
+    - cd backend
+    - mvn verify
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"

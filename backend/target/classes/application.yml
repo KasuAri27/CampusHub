@@ -1,0 +1,43 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api # 若前端未加 /api 前缀请改为 /
+
+spring:
+  datasource:
+    # 整合了字符集、时区以及禁用 SSL 警告
+    url: jdbc:mysql://localhost:3306/campushub?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: ${CAMPUSHUB_DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 保留了连接池的高级配置
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+
+  jpa:
+    hibernate:
+      ddl-auto: update # 采用 update 方便开发阶段自动建表/增删字段。生产环境建议改回 validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true # 格式化控制台输出的 SQL 语句
+    open-in-view: false
+
+  # 序列化与反序列化时区配置
+  jackson:
+    time-zone: Asia/Shanghai
+
+# JWT 身份验证安全配置
+jwt:
+  secret: ${CAMPUSHUB_JWT_SECRET}
+  expiration: 86400000 # 24小时过期
+
+# AES 加解密配置
+aes:
+  secret-key: ${CAMPUSHUB_AES_KEY}
+
+# 日志级别控制
+logging:
+  level:
+    com.campushub: DEBUG # 保持开发阶段打印详细的业务日志

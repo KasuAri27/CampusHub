@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:campushub_it;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+    open-in-view: false
+  sql:
+    init:
+      mode: never
+
+jwt:
+  secret: ${CAMPUSHUB_TEST_JWT_SECRET:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+  expiration: 86400000
+
+aes:
+  secret-key: ${CAMPUSHUB_TEST_AES_KEY:0123456789abcdef0123456789abcdef}
+
+logging:
+  level:
+    com.campushub: WARN
+    org.hibernate.SQL: WARN
