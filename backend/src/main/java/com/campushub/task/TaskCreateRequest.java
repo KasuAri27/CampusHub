@@ -48,6 +48,10 @@ public class TaskCreateRequest {
     // TUTORING
     private String subject;
     private BigDecimal pricePerHour;
+    @DecimalMin(value = "0.01", message = "辅导时长必须大于0")
+    @DecimalMax(value = "1000", message = "辅导时长超出范围")
+    @Digits(integer = 4, fraction = 2, message = "辅导时长最多两位小数")
+    private BigDecimal durationHours;
     private String tutoringLocation;
 
     // FLEA

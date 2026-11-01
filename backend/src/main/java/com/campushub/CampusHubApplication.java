@@ -10,7 +10,6 @@ import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
-@EnableScheduling
 public class CampusHubApplication {
 
     private static final Logger log = LoggerFactory.getLogger(CampusHubApplication.class);

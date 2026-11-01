@@ -22,11 +22,11 @@ public class ComplaintController {
 
     @GetMapping("/order/{orderId}")
     public ApiResponse<List<Complaint>> getByOrder(@PathVariable Long orderId) {
-        return ApiResponse.success(complaintService.getByOrderId(orderId));
+        return ApiResponse.success(complaintService.getByOrderId(orderId, UserContext.getCurrentUserId()));
     }
 
     @GetMapping("/{id}")
     public ApiResponse<Complaint> getById(@PathVariable Long id) {
-        return ApiResponse.success(complaintService.getById(id));
+        return ApiResponse.success(complaintService.getById(id, UserContext.getCurrentUserId()));
     }
 }

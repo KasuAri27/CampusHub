@@ -32,11 +32,13 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final JwtUtil jwtUtil;
     private final MessageService msgService;
     private final ConversationService convService;
+    private final com.campushub.user.UserRepository users;
 
-    public ChatWebSocketHandler(JwtUtil jwtUtil, MessageService msgService, ConversationService convService) {
+    public ChatWebSocketHandler(JwtUtil jwtUtil, MessageService msgService, ConversationService convService, com.campushub.user.UserRepository users) {
         this.jwtUtil = jwtUtil;
         this.msgService = msgService;
         this.convService = convService;
+        this.users = users;
     }
 
     @Override
@@ -76,6 +78,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         Long userId = (Long) session.getAttributes().get("userId");
         if (userId == null) return;
+        if (users.findById(userId).filter(user -> user.getStatus() == 1).isEmpty()) {
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
+        }
 
         JsonNode json = mapper.readTree(message.getPayload());
         String type = json.has("type") ? json.get("type").asText() : "";
@@ -96,7 +102,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 try {
                     MessageDTO dto = msgService.recallMessage(msgId, userId);
                     // 广播撤回事件，类型设为 RECALL
-                    broadcastRecall(convId, dto);
+                    // 按真实消息的会话广播，不能信任客户端另传的convId。
+                    broadcastRecall(dto.getConvId(), dto);
                 } catch (Exception e) {
                     log.error("撤回失败", e);
                 }
@@ -159,7 +166,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             String[] pair = param.split("=", 2);
             if (pair.length == 2 && "token".equals(pair[0])) {
                 try {
-                    return jwtUtil.getUserIdFromToken(pair[1]);
+                    Long userId = jwtUtil.getUserIdFromToken(pair[1]);
+                    return users.findById(userId).filter(user -> user.getStatus() == 1).isPresent() ? userId : null;
                 } catch (Exception e) {
                     return null;
                 }

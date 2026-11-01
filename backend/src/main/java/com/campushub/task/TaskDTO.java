@@ -38,6 +38,7 @@ public class TaskDTO {
 
     private String subject;
     private BigDecimal pricePerHour;
+    private BigDecimal durationHours;
     private String tutoringLocation;
 
     private String tradeMode;

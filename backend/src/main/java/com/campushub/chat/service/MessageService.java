@@ -22,9 +22,16 @@ public class MessageService {
 
     private final MessageRepository msgRepo;
     private final UserRepository userRepo;
+    private final com.campushub.chat.repository.ConversationRepository conversations;
+    private final com.campushub.chat.repository.ConversationMemberRepository members;
 
     @Transactional
     public MessageDTO saveAndGet(Long convId, Long senderId, String content, String msgType) {
+        if (senderId != 0L) {
+            requireMember(convId, senderId);
+            if (!"TEXT".equals(msgType) && !"IMAGE".equals(msgType) && msgType != null)
+                throw new BusinessException(400, "用户只能发送文本或图片消息");
+        }
         Message msg = new Message();
         msg.setConvId(convId);
         msg.setSenderId(senderId);
@@ -45,7 +52,9 @@ public class MessageService {
     }
 
     @Transactional(readOnly = true)
-    public PageResult<MessageDTO> getHistory(Long convId, int page, int size) {
+    public PageResult<MessageDTO> getHistory(Long convId, int page, int size, Long actorId) {
+        requireMember(convId, actorId);
+        if (page < 1 || size < 1 || size > 100) throw new BusinessException(400, "消息分页参数不合法");
         PageRequest pageable = PageRequest.of(page - 1, size);
         Page<Message> msgPage = msgRepo.findByConvIdOrderByCreatedAtDesc(convId, pageable);
 
@@ -68,6 +77,7 @@ public class MessageService {
     public MessageDTO recallMessage(Long msgId, Long userId) {
         Message msg = msgRepo.findById(msgId)
                 .orElseThrow(() -> new BusinessException("消息不存在"));
+        requireMember(msg.getConvId(), userId);
 
         if (!msg.getSenderId().equals(userId)) {
             throw new BusinessException("只能撤回自己的消息");
@@ -96,5 +106,10 @@ public class MessageService {
     private String getSenderName(Long userId) {
         User sender = userRepo.findById(userId).orElse(null);
         return sender != null ? (sender.getNickname() != null ? sender.getNickname() : sender.getName()) : "未知";
+    }
+    private void requireMember(Long convId, Long actorId) {
+        var conversation = conversations.findById(convId).orElseThrow(() -> new BusinessException(404, "会话不存在"));
+        if (Boolean.TRUE.equals(conversation.getIsDeleted()) || !members.existsByConvIdAndUserId(convId, actorId))
+            throw new BusinessException(403, "无权访问此会话");
     }
 }

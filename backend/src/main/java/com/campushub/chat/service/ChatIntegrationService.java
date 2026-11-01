@@ -53,7 +53,7 @@ public class ChatIntegrationService {
                     providerName + " 加入了群聊", "SYSTEM");
         } else {
             String requesterName = userName(task.getRequester().getId());
-            Conversation existing = convService.findByTaskAndType(task.getId(), "TASK_PRIVATE");
+            Conversation existing = convService.findByTaskOrderAndType(task.getId(), orderId, "TASK_PRIVATE");
             if (existing == null) {
                 Conversation conv = convService.createPrivate(
                         task.getId(), orderId,

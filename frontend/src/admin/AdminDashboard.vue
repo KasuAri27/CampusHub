@@ -1,5 +1,6 @@
 <template>
   <div class="admin-dashboard" v-loading="loading">
+    <p><router-link to="/admin/finance">交易、争议与人工结算管理</router-link></p>
     <!-- ==================== 待审核需求 ==================== -->
     <div class="review-section" v-if="!loading">
       <div class="section-header">
@@ -30,10 +31,10 @@
                   <span class="status-dot"></span>
                   待审核
                 </span>
-                <span class="reward" v-if="currentTask.reward">
+                <span class="reward" v-if="currentTask.taskType !== 'TEAM' && currentTask.reward">
                   <span class="currency">&#xFFE5;</span>{{ currentTask.reward }}
                 </span>
-                <span class="reward free" v-else>免费互助</span>
+                <span class="reward free" v-else-if="currentTask.taskType !== 'TEAM'">免费互助</span>
               </div>
 
               <!-- 标题 -->

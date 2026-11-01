@@ -34,13 +34,13 @@ public class TaskService {
     private final TaskRepository taskRepository;
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
-    private final ChatIntegrationService chatIntegrationService;
-    private final NotificationRepository notificationRepository;
+    private final com.campushub.notification.NotificationService notificationService;
 
     @Transactional
     public TaskDTO createTask(TaskCreateRequest request, Long userId) {
         User requester = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
+        if (requester.getStatus() != 1) throw new BusinessException(403, "账号已被禁用");
 
         if (requester.getCreditScore() < 70) {
             throw new BusinessException(403, "您的信用分低于70分，暂无发布需求权限！");
@@ -69,8 +69,15 @@ public class TaskService {
                 TutoringTask tt = new TutoringTask();
                 tt.setSubject(requireNonBlank(request.getSubject(), "辅导科目"));
                 tt.setPricePerHour(requireNonNegative(request.getPricePerHour(), "时薪"));
+                BigDecimal hours = request.getDurationHours();
+                if (hours == null || hours.signum() <= 0 || hours.compareTo(new BigDecimal("1000")) > 0 || hours.scale() > 2)
+                    throw new BusinessException(400, "请填写0至1000小时之间、最多两位小数的约定辅导时长");
+                tt.setDurationHours(hours);
                 tt.setTutoringLocation(requireNonBlank(request.getTutoringLocation(), "辅导地点"));
-                tt.setReward(request.getPricePerHour());
+                // 按人民币分四舍五入；不能接受前端另报一个更低的总金额。
+                BigDecimal total = request.getPricePerHour().multiply(hours).setScale(2, java.math.RoundingMode.HALF_UP);
+                if (total.compareTo(new BigDecimal("99999999.99")) > 0) throw new BusinessException(400, "辅导总价超出范围");
+                tt.setReward(total);
                 tt.setLocation(request.getTutoringLocation());
                 task = tt;
             }
@@ -78,20 +85,17 @@ public class TaskService {
                 SecondHandTask st = new SecondHandTask();
                 String tradeMode = request.getTradeMode() != null ? request.getTradeMode() : "SELL";
                 st.setTradeMode(tradeMode);
-                if ("SELL".equals(tradeMode)) {
-                    st.setItemPrice(requireNonNegative(request.getItemPrice(), "物品售价"));
-                    st.setReward(request.getItemPrice());
-                } else {
-                    st.setItemPrice(null);
-                    st.setReward(null);
-                }
+                if (!"SELL".equals(tradeMode) && !"BUY".equals(tradeMode)) throw new BusinessException(400, "二手交易类型不合法");
+                st.setItemPrice(requireNonNegative(request.getItemPrice(), "约定交易总价"));
+                st.setReward(request.getItemPrice());
                 st.setLocation(request.getLocation());
                 task = st;
             }
             case "TEAM" -> {
                 TeamingTask tm = new TeamingTask();
                 tm.setMaxMembers(request.getMaxMembers() > 0 ? request.getMaxMembers() : 2);
-                tm.setReward(request.getReward());
+                // 组队只做无偿招募，不将历史通用 reward 字段当作活动收费。
+                tm.setReward(null);
                 tm.setLocation(request.getLocation());
                 task = tm;
             }
@@ -114,7 +118,7 @@ public class TaskService {
         task.setDeadline(request.getDeadline());
         task.setStatus(TaskStatus.pending_review);
 
-        if (task.getReward() == null && request.getReward() != null) {
+        if (!(task instanceof TeamingTask) && task.getReward() == null && request.getReward() != null) {
             task.setReward(request.getReward());
         }
 
@@ -231,7 +235,9 @@ public class TaskService {
         if (task.getStatus() != TaskStatus.published) {
             throw new BusinessException(400, "只能删除待接单状态的需求");
         }
-        taskRepository.delete(task);
+        // 有接单历史时仅下架，保留订单引用与后续财务审计；无历史的新任务仍可删除。
+        if (taskRepository.countOrders(taskId) > 0) task.setStatus(TaskStatus.cancelled);
+        else taskRepository.delete(task);
     }
 
     private Sort buildSort(String sortBy) {
@@ -280,6 +286,7 @@ public class TaskService {
             taskType = "TUTORING";
             builder.subject(tt.getSubject())
                    .pricePerHour(tt.getPricePerHour())
+                   .durationHours(tt.getDurationHours())
                    .tutoringLocation(tt.getTutoringLocation());
         } else if (task instanceof SecondHandTask st) {
             taskType = "FLEA";
@@ -313,6 +320,8 @@ public class TaskService {
         if (value.compareTo(BigDecimal.ZERO) < 0) {
             throw new BusinessException(400, fieldName + "不能小于0");
         }
+        if (value.stripTrailingZeros().scale() > 2 || value.compareTo(new BigDecimal("99999999.99")) > 0)
+            throw new BusinessException(400, fieldName + "最多两位小数且不能超出金额范围");
         return value;
     }
 
@@ -325,15 +334,7 @@ public class TaskService {
         String title = "新需求待审核: " + task.getTitle();
         String content = buildReviewNotificationContent(task);
 
-        List<Notification> batch = admins.stream().map(admin -> {
-            Notification n = new Notification();
-            n.setReceiverId(admin.getId());
-            n.setTitle(title);
-            n.setContent(content);
-            n.setType("TASK_REVIEW");
-            return n;
-        }).toList();
-        notificationRepository.saveAll(batch);
+        admins.forEach(admin -> notificationService.createNotification(admin.getId(), title, content, "TASK_REVIEW"));
     }
 
     private String buildReviewNotificationContent(Task task) {

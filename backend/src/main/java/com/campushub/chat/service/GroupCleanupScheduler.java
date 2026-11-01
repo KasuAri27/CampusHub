@@ -27,6 +27,7 @@ public class GroupCleanupScheduler {
     private final ConversationService convService;
     private final MessageService msgService;
     private final TaskRepository taskRepo;
+    private final com.campushub.order.OrderRepository orders;
 
     @Scheduled(fixedRate = 60000) // 每分钟检查一次
     @Transactional
@@ -40,6 +41,11 @@ public class GroupCleanupScheduler {
             if (conv.getTaskId() == null) continue;
             Task task = taskRepo.findById(conv.getTaskId()).orElse(null);
             if (task == null) continue;
+            // 待付款、待结算和争议中的会话不能按旧的演示用生命周期提前下线。
+            if (orders.findByTaskId(task.getId()).stream().anyMatch(order -> order.isDisputed()
+                    || order.getPaymentStatus() == com.campushub.order.Order.PaymentStatus.unpaid
+                    || order.getPaymentStatus() == com.campushub.order.Order.PaymentStatus.paid
+                    && order.getSettlementStatus() != com.campushub.order.Order.SettlementStatus.recorded)) continue;
 
             /* 生命周期从需求方确认完成/取消后开始计时，不以截止时间为准 */
             boolean isExpired = "completed".equals(task.getStatus().name())

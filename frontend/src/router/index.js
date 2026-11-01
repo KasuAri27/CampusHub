@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
+  { path: '/admin/finance', name: 'Finance', component: () => import('@/admin/FinanceManagement.vue'), meta: { requiresAuth: true } },
   { path: '/login',         name: 'Login',       component: () => import('@/views/LoginRegister.vue')},
   { path: '/',              name: 'TaskList',    component: () => import('@/task/TaskListView.vue') },
   { path: '/tasks/:id',     name: 'TaskDetail',  component: () => import('@/task/TaskDetailView.vue') },
@@ -33,6 +34,10 @@ router.beforeEach(async (to, from, next) => {
 
   if (to.meta.requiresAuth && !userStore.isLoggedIn) {
     next('/login')
+  } else if (userStore.restricted && !['/my-orders', '/profile'].includes(to.path)) {
+    next('/my-orders')
+  } else if (to.path.startsWith('/admin') && !userStore.isAdmin) {
+    next('/')
   } else {
     next()
   }

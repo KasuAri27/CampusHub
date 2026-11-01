@@ -16,4 +16,5 @@ public class UserProfileDTO {
     private String avatar;
     private Integer creditScore;
     private String role;
+    private boolean restricted;
 }

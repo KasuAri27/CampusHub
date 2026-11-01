@@ -57,3 +57,12 @@ docker-compose.override.yml
 
 logs/
 *.lognode_modules/
+
+# 财务凭证及商户私钥只留在运行环境，不进入版本控制。
+private-storage/
+backend/private-storage/
+*.pem
+*.p12
+*.pfx
+*.key
+*.crt

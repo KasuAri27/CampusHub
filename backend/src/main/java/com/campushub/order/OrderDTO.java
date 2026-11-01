@@ -22,5 +22,21 @@ public class OrderDTO {
     private BigDecimal reward;
     private Long requesterId;
     private Long providerId;
-    private String paymentCode;
+    private BigDecimal amountDue;
+    private Long payerId;
+    private Long payeeId;
+    private String paymentStatus;
+    private String settlementStatus;
+    private LocalDateTime completionSubmittedAt;
+    private LocalDateTime acceptanceDueAt;
+    private LocalDateTime paymentDueAt;
+    private LocalDateTime escalationDueAt;
+    private LocalDateTime escalatedAt;
+    private LocalDateTime reviewEligibleAt;
+    private LocalDateTime paidAt;
+    private LocalDateTime settledAt;
+    private boolean disputed;
+    private String disputeReason;
+    private boolean hasReview;
+    private String taskType;
 }

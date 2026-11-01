@@ -19,7 +19,7 @@
       <el-table-column prop="title" label="标题" min-width="160" />
       <el-table-column prop="categoryName" label="分类" width="100" />
       <el-table-column prop="reward" label="报酬" width="80">
-        <template #default="{ row }">¥{{ row.reward || 0 }}</template>
+        <template #default="{ row }">{{ row.taskType === 'TEAM' ? '—' : `¥${row.reward || 0}` }}</template>
       </el-table-column>
       <el-table-column prop="status" label="状态" width="80">
         <template #default="{ row }">

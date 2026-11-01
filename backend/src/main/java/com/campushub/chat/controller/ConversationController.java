@@ -41,7 +41,7 @@ public class ConversationController {
     public ApiResponse<PageResult<?>> getMessages(@PathVariable Long id,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "30") int size) {
-        return ApiResponse.success(msgService.getHistory(id, page, size));
+        return ApiResponse.success(msgService.getHistory(id, page, size, UserContext.getCurrentUserId()));
     }
 
     @PutMapping("/{id}/read")

@@ -17,6 +17,11 @@ import java.util.Optional;
 public interface UserRepository extends JpaRepository<User, Long>,
         JpaSpecificationExecutor<User> {
 
+    /** 评分、逾期处罚和裁决均锁住用户后修改信用，避免并发覆盖。 */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.id = :id")
+    Optional<User> findLockedById(@Param("id") Long id);
+
     Optional<User> findByEmail(String email);
     Optional<User> findByStudentId(String studentId);
     Optional<User> findByPhone(String phoneEncrypted);

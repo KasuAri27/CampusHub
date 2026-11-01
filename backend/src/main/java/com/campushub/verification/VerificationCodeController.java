@@ -15,15 +15,15 @@ public class VerificationCodeController {
     private final VerificationCodeService verificationCodeService;
 
     @PostMapping("/send")
-    public ApiResponse<String> sendCode(@RequestBody SendCodeRequest request) {
+    public ApiResponse<String> sendCode(@jakarta.validation.Valid @RequestBody SendCodeRequest request) {
         // 调用 Service，传入 phone, type, studentId（可能为 null）
-        String code = verificationCodeService.sendCode(
+        verificationCodeService.sendCode(
                 request.getPhone(),
                 request.getType(),
                 request.getStudentId()
         );
-        // 生产环境不要返回验证码，这里仅用于调试
-        return ApiResponse.success("验证码已发送", code);
+        // 接入真实资金后不能将认证验证码直接返回给请求者，测试从受控数据夹具读取。
+        return ApiResponse.success("验证码已发送", null);
     }
 
     @Data

@@ -44,4 +44,12 @@ public class Complaint {
     @CreationTimestamp
     @Column(name = "create_time", updatable = false)
     private LocalDateTime createTime;
+
+    /** 正式异议由管理员处理，保留原投诉、裁决理由和处理人供人工审查。 */
+    @Builder.Default
+    private boolean resolved = false;
+    private Long resolvedBy;
+    private LocalDateTime resolvedAt;
+    @Column(length = 500)
+    private String resolution;
 }

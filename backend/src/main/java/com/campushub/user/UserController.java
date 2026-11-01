@@ -42,8 +42,8 @@ public class UserController {
     }
 
     @PutMapping("/role")
-    public ApiResponse<Void> updateRole(@RequestParam String role,
-                                        @RequestHeader("X-User-Id") Long userId) {
+    public ApiResponse<Void> updateRole(@RequestParam String role) {
+        Long userId = UserContext.getCurrentUserId();
         userService.updateUserRole(userId, role);
         return ApiResponse.success("身份切换成功", null);
     }

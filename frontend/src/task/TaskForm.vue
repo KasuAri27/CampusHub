@@ -128,6 +128,10 @@
             </el-input-number>
           </el-form-item>
         </div>
+        <el-form-item label="约定辅导时长（小时）" prop="durationHours">
+          <el-input-number v-model="form.durationHours" :min="0.01" :max="1000" :precision="2" />
+          <span style="margin-left:12px">约定总价：¥{{ tutoringQuote }}</span>
+        </el-form-item>
         <el-form-item label="辅导地点" prop="tutoringLocation">
           <el-input v-model="form.tutoringLocation" placeholder="例如：图书馆3楼、教学楼A201" maxlength="100" size="large">
             <template #prefix>
@@ -149,7 +153,7 @@
           </el-radio-group>
         </el-form-item>
 
-        <template v-if="form.tradeMode === 'SELL'">
+
           <div class="form-row">
             <el-form-item label="物品金额" prop="itemPrice" class="form-col">
               <el-input-number
@@ -165,15 +169,7 @@
               </el-input-number>
             </el-form-item>
           </div>
-        </template>
 
-        <el-alert
-          v-else
-          type="info"
-          :closable="false"
-          show-icon
-          title="收物模式无需填写金额，发布后由接单方按流程提供收款码。"
-        />
       </template>
 
       <!-- ── TEAM 活动组队 ── -->
@@ -255,6 +251,7 @@ import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import taskApi from '@/task/taskApi'
 import { useUserStore } from '@/user/userStore'
+import { tutoringTotal } from '@/order/money'
 
 const props = defineProps({
   taskType: { type: String, required: true }
@@ -265,11 +262,14 @@ const emit = defineEmits(['submitted'])
 const formRef = ref(null)
 const submitting = ref(false)
 const userStore = useUserStore()
+const tutoringQuote = computed(() => {
+  try { return tutoringTotal(form.pricePerHour, form.durationHours) }
+  catch { return '—' }
+})
 const API_ORIGIN = 'http://localhost:8080'
 
 const uploadHeaders = computed(() => ({
-  Authorization: userStore.token ? `Bearer ${userStore.token}` : '',
-  'X-User-Id': userStore.userId || ''
+  Authorization: userStore.token ? `Bearer ${userStore.token}` : ''
 }))
 
 // 各类型占位符文本
@@ -325,6 +325,7 @@ function getInitialForm() {
     // TUTORING
     subject: '',
     pricePerHour: null,
+    durationHours: 1,
     tutoringLocation: '',
     // FLEA
     tradeMode: 'SELL',
@@ -475,7 +476,7 @@ async function submitForm() {
       campus: form.campus || null,
       reward: props.taskType !== 'TEAM' ? (form.reward ?? null) : null,
       location: props.taskType !== 'FLEA' ? (form.location || null) : null,
-      deadline: form.deadline ? new Date(form.deadline).toISOString() : null
+      deadline: form.deadline || null
     }
 
     // 子类专属字段
@@ -487,13 +488,11 @@ async function submitForm() {
     } else if (props.taskType === 'TUTORING') {
       payload.subject = form.subject
       payload.pricePerHour = form.pricePerHour
+      payload.durationHours = form.durationHours
       payload.tutoringLocation = form.tutoringLocation
     } else if (props.taskType === 'FLEA') {
       payload.tradeMode = form.tradeMode
       payload.itemPrice = form.itemPrice
-      if (form.tradeMode !== 'SELL') {
-        payload.itemPrice = null
-      }
     } else if (props.taskType === 'TEAM') {
       payload.maxMembers = form.maxMembers
     } else if (props.taskType === 'CONSULTING') {

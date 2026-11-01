@@ -1,6 +1,7 @@
 package com.campushub.review;
 
 import com.campushub.common.ApiResponse;
+import com.campushub.util.UserContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,8 +15,8 @@ public class ReviewController {
     @PostMapping("/submit")
     public ApiResponse<Void> submitReview(@RequestParam Long orderId,
                                           @RequestParam Integer score,
-                                          @RequestParam(required = false) String comment,
-                                          @RequestHeader("X-User-Id") Long currentUserId) {
+                                          @RequestParam(required = false) String comment) {
+        Long currentUserId = UserContext.getCurrentUserId();
         reviewService.submitReview(orderId, currentUserId, score, comment);
         return ApiResponse.success();
     }

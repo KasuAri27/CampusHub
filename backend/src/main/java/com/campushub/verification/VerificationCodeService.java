@@ -19,6 +19,7 @@ import java.util.Random;
 @Service
 @RequiredArgsConstructor
 public class VerificationCodeService {
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
 
     private final VerificationCodeRepository verificationCodeRepository;
     private final UserRepository userRepository;
@@ -27,6 +28,9 @@ public class VerificationCodeService {
 
     @Transactional
     public String sendCode(String phone, String type, String studentId) {
+        if (!"REGISTER".equals(type) && !"LOGIN".equals(type)) throw new BusinessException(400, "验证码用途不合法");
+        if ("REGISTER".equals(type) && (studentId == null || studentId.length() < 4 || studentId.length() > 20))
+            throw new BusinessException(400, "请填写4至20位学号");
         // 1. 使同手机号同类型的旧验证码失效
         List<VerificationCode> oldCodes = verificationCodeRepository
                 .findByPhoneAndTypeAndUsedFalse(phone, type);
@@ -37,11 +41,12 @@ public class VerificationCodeService {
         }
 
         // 2. 生成新验证码
-        String code = String.format("%06d", new Random().nextInt(999999));
+        String code = String.format("%06d", RANDOM.nextInt(1_000_000));
         LocalDateTime expireTime = LocalDateTime.now().plusMinutes(5);
 
         VerificationCode vc = new VerificationCode();
         vc.setPhone(phone);
+        vc.setStudentId(studentId);
         vc.setCode(code);
         vc.setType(type);
         vc.setExpireTime(expireTime);
@@ -49,7 +54,7 @@ public class VerificationCodeService {
         verificationCodeRepository.save(vc);
 
         // 3. 控制台打印（方便调试）
-        System.out.println("【验证码】" + phone + " 验证码：" + code + "，有效期5分钟");
+        // 验证码只通过验证渠道发送，不再输出到日志或公开 HTTP 响应。
 
         // 4. 尝试发送邮件
         String email = null;
@@ -71,20 +76,25 @@ public class VerificationCodeService {
                 log.info("验证码邮件已发送至: {}", email);
             } catch (Exception e) {
                 log.error("邮件发送失败: {}", e.getMessage(), e);
-                // 邮件发送失败不影响主流程，但可提示用户查看控制台验证码
+                throw new BusinessException(503, "验证码邮件暂无法发送，请稍后重试");
             }
         } else {
-            log.info("未找到邮箱，仅发送短信验证码");
+            throw new BusinessException(400, "未找到已注册校邮，请先完成注册");
         }
 
         return code;
     }
 
     public void verifyCode(String phone, String code, String type) {
+        verifyCode(phone, code, type, null);
+    }
+    public void verifyCode(String phone, String code, String type, String studentId) {
         LocalDateTime now = LocalDateTime.now();
         VerificationCode vc = verificationCodeRepository
                 .findByPhoneAndCodeAndTypeAndUsedFalseAndExpireTimeAfter(phone, code, type, now)
                 .orElseThrow(() -> new BusinessException("验证码无效或已过期"));
+        if ("REGISTER".equals(type) && !java.util.Objects.equals(studentId, vc.getStudentId()))
+            throw new BusinessException(400, "验证码与注册学号不匹配");
         vc.setUsed(true);
         verificationCodeRepository.save(vc);
     }

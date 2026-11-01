@@ -28,6 +28,10 @@ public class Review {
     @Column(length = 200)
     private String comment;
 
+    /** 自动评价由受信任的调度入口设置，不能由用户评论文字触发。 */
+    @Column(nullable = false)
+    private boolean automatic;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

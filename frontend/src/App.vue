@@ -24,7 +24,7 @@
             需求广场
           </router-link>
 
-          <router-link v-if="userStore.isRequester" to="/tasks/publish" class="nav-item" active-class="active">
+          <router-link v-if="userStore.isRequester && !userStore.restricted" to="/tasks/publish" class="nav-item" active-class="active">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/>
               <line x1="12" y1="8" x2="12" y2="16"/>
@@ -33,7 +33,7 @@
             发布需求
           </router-link>
 
-          <router-link v-if="!userStore.isAdmin" to="/my-tasks" class="nav-item" active-class="active">
+          <router-link v-if="!userStore.isAdmin && !userStore.restricted" to="/my-tasks" class="nav-item" active-class="active">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
               <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
@@ -42,7 +42,7 @@
             我的需求
           </router-link>
 
-          <router-link to="/chat" class="nav-item" active-class="active">
+          <router-link v-if="!userStore.restricted" to="/chat" class="nav-item" active-class="active">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
             </svg>
@@ -50,7 +50,7 @@
             <span v-if="chatUnreadCount" class="nav-badge">{{ chatUnreadCount > 99 ? '99+' : chatUnreadCount }}</span>
           </router-link>
 
-          <router-link v-if="userStore.isAdmin" to="/admin" class="nav-item" active-class="active">
+          <router-link v-if="userStore.isAdmin && !userStore.restricted" to="/admin" class="nav-item" active-class="active">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="3"/>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -61,7 +61,7 @@
 
         <div class="nav-actions">
           <button
-              v-if="userStore.isLoggedIn && !userStore.isAdmin"
+              v-if="userStore.isLoggedIn && !userStore.isAdmin && !userStore.restricted"
               class="role-switch-btn"
               @click="userStore.switchRole()"
           >
@@ -142,7 +142,7 @@ const handleLogout = () => {
 }
 
 async function syncChatState() {
-  if (!userStore.isLoggedIn) {
+  if (!userStore.isLoggedIn || userStore.restricted) {
     chatStore.disconnect()
     return
   }

@@ -196,6 +196,10 @@ public class ConversationService {
     public Conversation findByTaskAndType(Long taskId, String convType) {
         return convRepo.findByTaskIdAndConvType(taskId, convType).orElse(null);
     }
+    /** 私聊按订单隔离，取消后重新接单不能复用前一服务方的会话。 */
+    public Conversation findByTaskOrderAndType(Long taskId, Long orderId, String convType) {
+        return convRepo.findByTaskIdAndOrderIdAndConvType(taskId, orderId, convType).orElse(null);
+    }
 
     public List<Long> getMemberIds(Long convId) {
         return memberRepo.findUserIdsByConvId(convId);

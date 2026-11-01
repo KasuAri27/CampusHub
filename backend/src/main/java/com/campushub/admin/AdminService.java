@@ -55,11 +55,12 @@ public class AdminService {
     private final ConversationRepository conversationRepository;
     private final ConversationMemberRepository conversationMemberRepository;
     private final MessageRepository messageRepository;
+    private final com.campushub.notification.NotificationService notificationService;
 
     private User requireAdmin(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
-        if (user.getRole() != User.Role.admin) {
+        if (user.getRole() != User.Role.admin || user.getStatus() != 1) {
             throw new BusinessException(403, "无管理员权限");
         }
         return user;
@@ -179,7 +180,7 @@ public class AdminService {
         n.setTitle(title);
         n.setContent(content);
         n.setType("CREDIT_CHANGE");
-        notificationRepository.save(n);
+        notificationService.createNotification(n.getReceiverId(), n.getTitle(), n.getContent(), n.getType());
 
         if (newScore < 70) {
             Notification warn = new Notification();
@@ -187,7 +188,7 @@ public class AdminService {
             warn.setTitle("信用分不足提醒");
             warn.setContent("您的信用分已降至 " + newScore + "（低于70），发布权限已被限制。如需申诉，请联系管理员 " + adminName + "。");
             warn.setType("CREDIT_WARNING");
-            notificationRepository.save(warn);
+            notificationService.createNotification(warn.getReceiverId(), warn.getTitle(), warn.getContent(), warn.getType());
         }
     }
 
@@ -226,6 +227,8 @@ public class AdminService {
         if (!taskRepository.existsById(taskId)) {
             throw new BusinessException(404, "需求不存在");
         }
+        if (orderRepository.findByTaskId(taskId).stream().anyMatch(o -> o.getAmountDue() != null))
+            throw new BusinessException(409, "任务已有新业务订单，须保留财务和争议审计记录，不能物理删除");
         // 管理员删除需求时级联删除评价 → 订单 → 需求
         orderRepository.findByTaskId(taskId).forEach(o -> {
             reviewRepository.deleteByOrder_Id(o.getId());
@@ -283,7 +286,7 @@ public class AdminService {
         n.setTitle(title);
         n.setContent(content);
         n.setType("TASK_REVIEW_RESULT");
-        notificationRepository.save(n);
+        notificationService.createNotification(n.getReceiverId(), n.getTitle(), n.getContent(), n.getType());
     }
 
     private void notifyRequester(Task task, String action) {
@@ -368,7 +371,7 @@ public class AdminService {
             n.setTitle(req.getTitle());
             n.setContent(req.getContent());
             n.setType(req.getType() != null ? req.getType() : "SYSTEM");
-            notificationRepository.save(n);
+            notificationService.createNotification(n.getReceiverId(), n.getTitle(), n.getContent(), n.getType());
         } else {
             List<User> allUsers = userRepository.findAll();
             List<Notification> batch = allUsers.stream().map(u -> {
@@ -379,7 +382,7 @@ public class AdminService {
                 n.setType(req.getType() != null ? req.getType() : "SYSTEM");
                 return n;
             }).collect(Collectors.toList());
-            notificationRepository.saveAll(batch);
+            batch.forEach(n -> notificationService.createNotification(n.getReceiverId(), n.getTitle(), n.getContent(), n.getType()));
         }
     }
 
@@ -538,6 +541,7 @@ public class AdminService {
         }
 
         return TaskManagementDTO.builder()
+                .taskType(t instanceof TeamingTask ? "TEAM" : t instanceof com.campushub.task.SecondHandTask ? "FLEA" : "SERVICE")
                 .id(t.getId()).title(t.getTitle()).description(t.getDescription())
                 .categoryName(t.getCategory() != null ? t.getCategory().getName() : "")
                 .reward(t.getReward())

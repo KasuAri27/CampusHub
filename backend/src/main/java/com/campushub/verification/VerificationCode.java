@@ -17,6 +17,9 @@ public class VerificationCode {
 
     @Column(nullable = false, length = 11)
     private String phone;
+    /** 注册验证码绑定申请时的学号，不能收取A校邮验证码后注册成B学号。 */
+    @Column(length = 20)
+    private String studentId;
 
     @Column(nullable = false, length = 6)
     private String code;

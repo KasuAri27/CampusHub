@@ -10,6 +10,7 @@ export const useUserStore = defineStore('user', () => {
   const avatar = ref(null)
   const creditScore = ref(100)
   const token = ref(null)
+  const restricted = ref(false)
 
   function normalizeAvatarUrl(url) {
     if (!url) return null
@@ -23,7 +24,7 @@ export const useUserStore = defineStore('user', () => {
   const isLoggedIn = computed(() => userId.value !== null)
 
   function persist() {
-    const data = { userId: userId.value, nickname: nickname.value, role: role.value, avatar: avatar.value, creditScore: creditScore.value, token: token.value }
+    const data = { userId: userId.value, nickname: nickname.value, role: role.value, avatar: avatar.value, creditScore: creditScore.value, token: token.value, restricted: restricted.value }
     localStorage.setItem('campusHubSession', JSON.stringify(data))
   }
 
@@ -34,6 +35,7 @@ export const useUserStore = defineStore('user', () => {
     avatar.value = normalizeAvatarUrl(user.avatar)
     creditScore.value = user.creditScore ?? 100
     token.value = jwtToken
+    restricted.value = Boolean(user.restricted)
     persist()
   }
 
@@ -41,6 +43,7 @@ export const useUserStore = defineStore('user', () => {
     if (profile.nickname !== undefined) nickname.value = profile.nickname
     if (profile.avatar !== undefined) avatar.value = normalizeAvatarUrl(profile.avatar)
     if (profile.creditScore !== undefined) creditScore.value = profile.creditScore
+    if (profile.restricted !== undefined) restricted.value = profile.restricted
     persist()
   }
 
@@ -51,6 +54,7 @@ export const useUserStore = defineStore('user', () => {
     avatar.value = null
     creditScore.value = 100
     token.value = null
+    restricted.value = false
     localStorage.removeItem('campusHubSession')
   }
 
@@ -66,6 +70,7 @@ export const useUserStore = defineStore('user', () => {
       avatar.value = normalizeAvatarUrl(data.avatar)
       creditScore.value = data.creditScore ?? 100
       token.value = data.token
+      restricted.value = Boolean(data.restricted)
       return true
     } catch {
       localStorage.removeItem('campusHubSession')
@@ -77,7 +82,7 @@ export const useUserStore = defineStore('user', () => {
   /** 普通用户在需求方/服务方之间切换身份 */
   // 在 userStore.js 中修改 switchRole 方法
   async function switchRole() {
-    if (role.value === 'admin') return
+    if (role.value === 'admin' || restricted.value) return
 
     // 计算新的角色名称
     const newRole = role.value === 'requester' ? 'provider' : 'requester'
@@ -106,7 +111,7 @@ export const useUserStore = defineStore('user', () => {
       const res = await http.post('/auth/login/password', { account, password })
       if (res.data.code === 200) {
         const d = res.data.data
-        login({ id: d.userId, nickname: d.nickname, role: d.role || 'requester', avatar: null, creditScore: 100 }, d.token)
+        login({ id: d.userId, nickname: d.nickname, role: d.role || 'requester', avatar: null, creditScore: d.creditScore ?? 100, restricted: d.restricted }, d.token)
         return true
       }
     } catch { /* handled by interceptor */ }
@@ -119,7 +124,7 @@ export const useUserStore = defineStore('user', () => {
       const res = await http.post('/auth/login/sms', { phone, code })
       if (res.data.code === 200) {
         const d = res.data.data
-        login({ id: d.userId, nickname: d.nickname, role: d.role || 'requester', avatar: null, creditScore: 100 }, d.token)
+        login({ id: d.userId, nickname: d.nickname, role: d.role || 'requester', avatar: null, creditScore: d.creditScore ?? 100, restricted: d.restricted }, d.token)
         return true
       }
     } catch { /* handled by interceptor */ }
@@ -135,7 +140,7 @@ export const useUserStore = defineStore('user', () => {
     return false
   }
 
-  return { userId, nickname, role, avatar, creditScore, token,
+  return { userId, nickname, role, avatar, creditScore, token, restricted,
            isRequester, isProvider, isAdmin, isLoggedIn,
            login, logout, restoreSession, switchRole, syncProfile,
            loginWithPassword, loginWithSms, register }

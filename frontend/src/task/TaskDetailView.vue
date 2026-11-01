@@ -66,7 +66,7 @@
           </div>
 
           <div class="detail-sidebar">
-            <div class="reward-card">
+            <div class="reward-card" v-if="task.taskType !== 'TEAM'">
               <span class="reward-label">任务报酬</span>
               <div class="reward-amount" v-if="task.taskType === 'FLEA' && (task.tradeMode || 'SELL') === 'BUY'">
                 <span class="amount">收物</span>
@@ -93,7 +93,7 @@
 
             <div class="action-buttons">
               <button
-                  v-if="userStore.isProvider && task.status === 'published'"
+                  v-if="userStore.isProvider && task.status === 'published' && (!orderDetail || orderDetail.orderStatus === 'cancelled')"
                   class="accept-btn"
                   :loading="actionLoading"
                   @click="handleAccept"
@@ -105,55 +105,11 @@
                 立即接单
               </button>
 
-              <template v-if="userStore.isRequester && task.publisher?.userId === userStore.userId">
-                <button
-                    v-if="task.status === 'in_progress'"
-                    class="complete-btn"
-                    :loading="actionLoading"
-                    @click="handleComplete"
-                >
-                  确认完成
-                </button>
-                <button
-                    v-if="task.status === 'published'"
-                    class="cancel-btn"
-                    :loading="actionLoading"
-                    @click="handleCancel"
-                >
-                  取消需求
-                </button>
-                <button
-                    v-if="task.status === 'in_progress'"
-                    class="cancel-btn"
-                    disabled
-                >
-                  已被接单，无法取消
-                </button>
-                <!-- 评价按钮与超时提示逻辑 -->
-                <template v-if="task.status === 'completed' && canShowReview">
-                  <button
-                      v-if="!reviewDetail && !isReviewExpired"
-                      class="review-btn"
-                      @click="openReviewDialog"
-                  >
-                    评价服务方
-                  </button>
-                  <p v-else-if="(!reviewDetail && isReviewExpired) || isAutoReviewed" class="action-hint" style="color: #94a3b8; font-size: 12px; margin-top: 8px;">
-                    7天内没有评价服务方，默认五星好评
-                  </p>
-                </template>
-              </template>
-
-              <!-- 投诉按钮 -->
-              <button
-                  v-if="canComplain"
-                  class="complaint-btn"
-                  @click="complaintVisible = true"
-              >
-                投诉
-              </button>
-
-              <p v-if="userStore.isProvider && task.status === 'published'" class="action-hint">
+              <button v-if="task.publisher?.userId === userStore.userId && task.status === 'published' && !orderDetail"
+                class="cancel-btn" @click="handleCancel">取消需求</button>
+              <OrderActions v-if="orderDetail" :order="orderDetail" @updated="refreshOrder" />
+              <router-link v-if="task.taskType === 'TEAM' && task.publisher?.userId === userStore.userId" to="/my-orders">管理组队成员订单</router-link>
+              <p v-if="userStore.isProvider && task.status === 'published' && (!orderDetail || orderDetail.orderStatus === 'cancelled')" class="action-hint">
                 接单后订单进入进行中状态
               </p>
             </div>
@@ -162,55 +118,19 @@
       </template>
     </div>
 
-    <ReviewDialog
-        v-model:visible="reviewVisible"
-        :orderId="currentOrderId"
-        @submitted="handleReviewSubmitted"
-    />
-
-    <el-dialog v-model="complaintVisible" title="投诉" width="440px" append-to-body>
-      <el-form label-width="80px">
-        <el-form-item label="投诉理由">
-          <el-select v-model="complaintForm.reason" placeholder="选择投诉理由">
-            <el-option label="虚假信息" value="虚假信息" />
-            <el-option label="付款纠纷" value="付款纠纷" />
-            <el-option label="服务未完成" value="服务未完成" />
-            <el-option label="恶意评价" value="恶意评价" />
-            <el-option label="其他" value="其他" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="详细描述">
-          <el-input v-model="complaintForm.description" type="textarea" :rows="3" placeholder="请描述具体情况..." />
-        </el-form-item>
-        <el-form-item label="证据图片">
-          <el-upload action="/v1/files/upload" :headers="uploadHeaders"
-            :show-file-list="false" :on-success="handleComplaintUpload">
-            <el-button size="small">上传图片</el-button>
-          </el-upload>
-          <img v-if="complaintForm.imageUrl" :src="'http://localhost:8080' + complaintForm.imageUrl"
-            style="max-width:120px;margin-top:8px" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="complaintVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleComplaint">提交</el-button>
-      </template>
-    </el-dialog>
 
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import taskApi from '@/task/taskApi'
 import orderApi from '@/order/orderApi'
 import { useUserStore } from '@/user/userStore'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
-import ReviewDialog from '@/review/reviewDialog.vue'
+import OrderActions from '@/order/OrderActions.vue'
 import reviewApi from '@/review/reviewApi'
-import http from '@/common/http'
 
 const route = useRoute()
 const router = useRouter()
@@ -219,8 +139,6 @@ const userStore = useUserStore()
 const loading = ref(true)
 const actionLoading = ref(false)
 const task = ref(null)
-const reviewVisible = ref(false)
-const currentOrderId = ref(null)
 const lastOrderId = ref(null)
 const orderDetail = ref(null)
 const reviewDetail = ref(null)
@@ -236,25 +154,6 @@ const statusMap = {
 const statusLabel = computed(() => task.value ? (statusMap[task.value.status]?.[0] || task.value.status) : '')
 const statusClass = computed(() => task.value ? (statusMap[task.value.status]?.[1] || 'default') : 'default')
 
-const canShowReview = computed(() => task.value ? task.value.hasReview : false)
-const uploadHeaders = computed(() => {
-  return {
-    'Authorization': userStore.token ? `Bearer ${userStore.token}` : '',
-    'X-User-Id': userStore.userId || ''
-  }
-})
-
-const isReviewExpired = computed(() => {
-  if (task.value?.status !== 'completed' || !orderDetail.value?.completedAt) return false;
-  const completedTime = new Date(orderDetail.value.completedAt).getTime();
-  // 计算当前时间与完成时间的差值，判断是否超出 7 天
-  return (Date.now() - completedTime) >= 7 * 24 * 60 * 60 * 1000;
-});
-
-const isAutoReviewed = computed(() => {
-  return reviewDetail.value && reviewDetail.value.comment === '默认好评';
-});
-
 function formatTime(d) {
   if (!d) return ''
   return new Date(d).toLocaleString('zh-CN', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -265,21 +164,8 @@ onMounted(async () => {
     const res = await taskApi.getById(route.params.id)
     task.value = res.data.data
 
-    // 修改：让需求方和服务方在进入进行中/已完成时都去获取订单信息，如果有评价则顺带拉取评价
-    if (['in_progress', 'completed'].includes(task.value.status)) {
-      try {
-        const orderRes = await orderApi.getByTaskId(task.value.id)
-        orderDetail.value = orderRes.data?.data
+    await refreshOrder()
 
-        // 已完成的话，尝试查询评价
-        if (task.value.status === 'completed' && orderDetail.value?.orderId) {
-          const reviewRes = await reviewApi.getByOrderId(orderDetail.value.orderId)
-          reviewDetail.value = reviewRes.data?.data
-        }
-      } catch (err) {
-        console.warn('获取订单详情/评价失败', err)
-      }
-    }
   } finally {
     loading.value = false
   }
@@ -301,39 +187,8 @@ async function executeAcceptApi() {
     const res = await orderApi.accept(task.value.id)
     lastOrderId.value = res.data?.data?.orderId
     ElMessage.success('接单成功！需求已进入进行中')
-    task.value.status = 'in_progress'
-  } finally {
-    actionLoading.value = false
-  }
-}
-
-async function handleComplete() {
-  try {
-    await ElMessageBox.confirm('确认该需求已完成？', '确认完成')
-    actionLoading.value = true
-
-    if (!lastOrderId.value) {
-      try {
-        const res = await orderApi.getByTaskId(task.value.id)
-        if (res.data && res.data.data && res.data.data.orderId) {
-          lastOrderId.value = res.data.data.orderId
-        }
-      } catch (e) {
-        console.warn('获取订单失败', e)
-      }
-    }
-
-    if (!lastOrderId.value) {
-      ElMessage.warning('未能获取到对应订单，请到「我的订单」中处理')
-      actionLoading.value = false
-      return
-    }
-
-    await orderApi.complete(lastOrderId.value)
-    ElMessage.success('已确认完成')
-    task.value.status = 'completed'
-  } catch (e) {
-    if (e !== 'cancel') console.error(e)
+    task.value.status = res.data.data.taskStatus
+    await refreshOrder()
   } finally {
     actionLoading.value = false
   }
@@ -353,55 +208,17 @@ async function handleCancel() {
   }
 }
 
-async function openReviewDialog() {
-  if (!lastOrderId.value) {
-    try {
-      const res = await orderApi.getByTaskId(task.value.id)
-      if (res.data && res.data.data && res.data.data.orderId) {
-        lastOrderId.value = res.data.data.orderId
-      }
-    } catch (e) {
-      console.warn('获取订单失败', e)
-    }
+// 从本人订单列表定位记录，不对无关用户发起订单详情请求，也不依赖页面角色。
+async function refreshOrder() {
+  if (!userStore.isLoggedIn) return
+  const { data } = await orderApi.mine()
+  orderDetail.value = data.data.find(order => order.taskId === Number(route.params.id)) || null
+  if (orderDetail.value) {
+    lastOrderId.value = orderDetail.value.orderId
+    task.value.status = orderDetail.value.taskStatus
+    if (orderDetail.value.reviewEligibleAt && orderDetail.value.hasReview)
+      reviewDetail.value = (await reviewApi.getByOrderId(orderDetail.value.orderId)).data.data
   }
-
-  if (!lastOrderId.value) {
-    ElMessage.warning('未能获取到对应订单信息，请到「我的订单」中评价')
-    return
-  }
-
-  currentOrderId.value = lastOrderId.value
-  reviewVisible.value = true
-}
-
-async function handleReviewSubmitted() {
-  ElMessage.success('评价已提交，感谢反馈！')
-  if (currentOrderId.value) {
-    const reviewRes = await reviewApi.getByOrderId(currentOrderId.value)
-    reviewDetail.value = reviewRes.data?.data
-  }
-}
-
-// ======== 投诉 ========
-const complaintVisible = ref(false)
-const complaintForm = reactive({ reason: '', description: '', imageUrl: '' })
-const canComplain = computed(() => task.value && orderDetail.value?.orderId &&
-  ['in_progress', 'completed'].includes(task.value.status))
-function handleComplaintUpload(res) { complaintForm.imageUrl = res.data }
-async function handleComplaint() {
-  if (!complaintForm.reason) { ElMessage.warning('请选择投诉理由'); return }
-  try {
-    await http.post('/complaints', {
-      orderId: orderDetail.value?.orderId,
-      targetId: task.value.publisher?.userId === userStore.userId
-        ? orderDetail.value?.providerId : userStore.userId,
-      reason: complaintForm.reason,
-      description: complaintForm.description,
-      imageUrl: complaintForm.imageUrl
-    })
-    ElMessage.success('投诉已提交')
-    complaintVisible.value = false
-  } catch { /* handled by interceptor */ }
 }
 </script>
 

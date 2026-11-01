@@ -1,140 +1,47 @@
 <template>
   <div class="my-orders-page">
-    <div class="page-header">
-      <h1>我的订单</h1>
-      <p>查看你接过和处理过的所有订单</p>
-    </div>
-
-    <el-tabs v-model="activeTab" @tab-change="fetchOrders">
+    <h1>我的订单</h1>
+    <el-alert v-if="user.restricted" title="账号受限：仍可处理欠款和申诉，暂不能发布或接取新任务。" type="warning" :closable="false" />
+    <p>查看本人参与的服务、验收、付款和结算状态。</p>
+    <el-tabs v-model="activeTab">
+      <el-tab-pane label="全部" name="all" />
       <el-tab-pane label="进行中" name="in_progress" />
-      <el-tab-pane label="已完成" name="completed" />
+      <el-tab-pane label="待验收" name="awaiting_acceptance" />
+      <el-tab-pane label="已验收" name="completed" />
       <el-tab-pane label="已取消" name="cancelled" />
     </el-tabs>
-
-    <div v-if="loading" class="loading-state">加载中...</div>
-    <div v-else-if="orders.length === 0" class="empty-state">
-      <p>暂无相关订单</p>
+    <div v-loading="loading">
+      <el-empty v-if="!filtered.length" description="暂无相关订单" />
+      <article v-for="order in filtered" :key="order.orderId" class="order-card">
+        <h3><router-link :to="`/tasks/${order.taskId}`">{{ order.title }}</router-link></h3>
+        <p>{{ order.description }}</p>
+        <OrderActions :order="order" @updated="load" />
+      </article>
     </div>
-    <div v-else class="order-grid">
-      <div v-for="order in orders" :key="order.orderId" class="order-card">
-        <!-- 卡片内容，风格与 TaskCard 保持一致 -->
-        <div class="order-header">
-          <span class="status" :class="order.orderStatus">{{ order.orderStatus }}</span>
-          <span class="reward">¥{{ order.reward || '免费' }}</span>
-        </div>
-        <h4>{{ order.title }}</h4>
-        <p class="desc">{{ order.description }}</p>
-
-        <div class="order-actions" v-if="userStore.isRequester && order.orderStatus === 'accepted'">
-          <el-button type="success" @click="handleComplete(order.orderId)">确认完成</el-button>
-          <el-button @click="handleCancel(order.orderId)">取消订单</el-button>
-        </div>
-
-        <div class="order-actions" v-if="userStore.isRequester && order.orderStatus === 'completed' && canReview(order)">
-          <el-button
-              v-if="!order.reviewDetail && !isOrderReviewExpired(order)"
-              type="primary"
-              @click="openReviewDialog(order.orderId)"
-          >
-            评价服务方
-          </el-button>
-          <span
-              v-else-if="(!order.reviewDetail && isOrderReviewExpired(order)) || isAutoReviewed(order)"
-              style="color: #94a3b8; font-size: 12px; margin-left: 10px;"
-          >
-            7天内没有评价服务方，默认五星好评
-          </span>
-        </div>
-      </div>
-    </div>
-
-    <ReviewDialog
-        v-model:visible="reviewDialogVisible"
-        :orderId="currentReviewOrderId"
-        @submitted="fetchOrders"
-    />
   </div>
 </template>
-
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import orderApi from '@/order/orderApi'
-import reviewApi from '@/review/reviewApi'
+import OrderActions from '@/order/OrderActions.vue'
 import { useUserStore } from '@/user/userStore'
-import ReviewDialog from '@/review/reviewDialog.vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-
-const userStore = useUserStore()
-const activeTab = ref('in_progress')
-const orders = ref([])
+const user = useUserStore()
 const loading = ref(false)
-const reviewDialogVisible = ref(false)
-const currentReviewOrderId = ref(null)
-
-async function fetchOrders() {
+const orders = ref([])
+const activeTab = ref('all')
+const filtered = computed(() => orders.value.filter(order => activeTab.value === 'all' || order.orderStatus === activeTab.value))
+// 同时覆盖双方订单，切换身份不会丢失验收和付款入口。
+async function load() {
   loading.value = true
-  try {
-    const res = await orderApi.myAccepted(activeTab.value)
-    orders.value = res.data?.data || []
-  } finally {
-    loading.value = false
+  try { orders.value = (await orderApi.mine()).data.data }
+  catch {
+    // 请求层已提示错误；保留已有列表，避免加载失败被误当成订单消失。
   }
+  finally { loading.value = false }
 }
-
-async function handleComplete(orderId) {
-  await ElMessageBox.confirm('确认该订单已完成？', '提示')
-  await orderApi.complete(orderId)
-  ElMessage.success('已确认完成')
-  fetchOrders()
-}
-
-async function handleCancel(orderId) {
-  await ElMessageBox.confirm('确定要取消该订单吗？', '提示', { type: 'warning' })
-  await orderApi.cancel(orderId)
-  ElMessage.success('订单已取消')
-  fetchOrders()
-}
-
-function canReview(order) {
-  // 这里可以根据 task 的 category 判断，简单版先放开
-  return true
-}
-
-function openReviewDialog(orderId) {
-  currentReviewOrderId.value = orderId
-  reviewDialogVisible.value = true
-}
-
-async function fetchOrders() {
-  loading.value = true
-  try {
-    const res = await orderApi.myAccepted(activeTab.value)
-    const list = res.data?.data || []
-
-    // 如果查询的是已完成订单，顺便获取它们的评价状态
-    if (activeTab.value === 'completed') {
-      for (const order of list) {
-        try {
-          const reviewRes = await reviewApi.getByOrderId(order.orderId)
-          order.reviewDetail = reviewRes.data?.data
-        } catch(e) {}
-      }
-    }
-    orders.value = list
-  } finally {
-    loading.value = false
-  }
-}
-
-function isOrderReviewExpired(order) {
-  if (!order.completedAt) return false;
-  const completedTime = new Date(order.completedAt).getTime();
-  return (Date.now() - completedTime) >= 7 * 24 * 60 * 60 * 1000;
-}
-
-function isAutoReviewed(order) {
-  return order.reviewDetail && order.reviewDetail.comment === '默认好评';
-}
-
-onMounted(fetchOrders)
+onMounted(load)
 </script>
+<style scoped>
+.my-orders-page { max-width: 1000px; margin: auto; padding: 24px; }
+.order-card { padding: 20px; margin: 16px 0; border: 1px solid var(--border-color); border-radius: var(--radius-lg); }
+</style>
