@@ -1,9 +1,9 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:campushub_it;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
-    username: sa
-    password:
-    driver-class-name: org.h2.Driver
+    url: ${CAMPUSHUB_TEST_DB_URL:jdbc:h2:mem:campushub_it;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE}
+    username: ${CAMPUSHUB_TEST_DB_USER:sa}
+    password: ${CAMPUSHUB_TEST_DB_PASSWORD:}
+    driver-class-name: ${CAMPUSHUB_TEST_DB_DRIVER:org.h2.Driver}
   jpa:
     hibernate:
       ddl-auto: create-drop
@@ -27,3 +27,14 @@ logging:
   level:
     com.campushub: WARN
     org.hibernate.SQL: WARN
+
+# 测试直接调用扫描入口并控制 Clock，禁止后台调度和真实支付渠道参与测试。
+campushub:
+  scheduling:
+    enabled: false
+  payment:
+    evidence-directory: ${java.io.tmpdir}/campushub-it-evidence
+    wechat:
+      enabled: false
+    alipay:
+      enabled: false

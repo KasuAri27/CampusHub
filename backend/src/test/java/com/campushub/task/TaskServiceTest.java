@@ -41,6 +41,8 @@ class TaskServiceTest {
 
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private com.campushub.notification.NotificationService notificationService;
 
     @InjectMocks
     private TaskService taskService;
@@ -65,7 +67,7 @@ class TaskServiceTest {
         Task saved = captor.getValue();
         assertThat(saved.getRequester()).isSameAs(requester);
         assertThat(saved.getCategory()).isSameAs(category);
-        assertThat(saved.getStatus()).isEqualTo(TaskStatus.published);
+        assertThat(saved.getStatus()).isEqualTo(TaskStatus.pending_review);
         assertThat(dto.getId()).isEqualTo(10L);
         assertThat(dto.getCategoryId()).isEqualTo(3);
         assertThat(dto.getHasReview()).isTrue();

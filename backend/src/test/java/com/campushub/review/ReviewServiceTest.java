@@ -36,16 +36,23 @@ class ReviewServiceTest {
 
     @Mock
     private NotificationService notificationService;
+    @Mock private com.campushub.user.CreditService creditService;
 
     @InjectMocks
     private ReviewService reviewService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void configureClock() {
+        reviewService = new ReviewService(notificationService, orderRepository, reviewRepository,
+                creditService, com.campushub.support.BusinessFixtures.CLOCK);
+    }
 
     @Test
     void submitReviewSavesReviewAndAddsCreditForFiveStarScore() {
         User requester = user(1L, 100);
         User provider = user(2L, 100);
         Order order = completedOrder(requester, provider, true);
-        when(orderRepository.findByIdWithDetails(20L)).thenReturn(Optional.of(order));
+        when(orderRepository.findLockedById(20L)).thenReturn(Optional.of(order));
         when(reviewRepository.existsByOrder_Id(20L)).thenReturn(false);
 
         reviewService.submitReview(20L, 1L, 5, "非常及时");
@@ -56,7 +63,7 @@ class ReviewServiceTest {
         assertThat(saved.getOrder()).isSameAs(order);
         assertThat(saved.getScore()).isEqualTo(5);
         assertThat(saved.getComment()).isEqualTo("非常及时");
-        assertThat(provider.getCreditScore()).isEqualTo(101);
+        verify(creditService).adjust(2L, 1, "review:20", "订单评分：5");
     }
 
     @Test
@@ -64,12 +71,12 @@ class ReviewServiceTest {
         User requester = user(1L, 100);
         User provider = user(2L, 100);
         Order order = completedOrder(requester, provider, true);
-        when(orderRepository.findByIdWithDetails(20L)).thenReturn(Optional.of(order));
+        when(orderRepository.findLockedById(20L)).thenReturn(Optional.of(order));
         when(reviewRepository.existsByOrder_Id(20L)).thenReturn(false);
 
         reviewService.submitReview(20L, 1L, 2, "迟到较久");
 
-        assertThat(provider.getCreditScore()).isEqualTo(98);
+        verify(creditService).adjust(2L, -1, "review:20", "订单评分：2");
     }
 
     @Test
@@ -87,7 +94,7 @@ class ReviewServiceTest {
         User requester = user(1L, 100);
         User provider = user(2L, 100);
         Order order = completedOrder(requester, provider, true);
-        when(orderRepository.findByIdWithDetails(20L)).thenReturn(Optional.of(order));
+        when(orderRepository.findLockedById(20L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> reviewService.submitReview(20L, 2L, 5, "越权评价"))
                 .isInstanceOf(BusinessException.class)
@@ -101,7 +108,7 @@ class ReviewServiceTest {
         User requester = user(1L, 100);
         User provider = user(2L, 100);
         Order order = completedOrder(requester, provider, false);
-        when(orderRepository.findByIdWithDetails(20L)).thenReturn(Optional.of(order));
+        when(orderRepository.findLockedById(20L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> reviewService.submitReview(20L, 1L, 5, "无法评价"))
                 .isInstanceOf(BusinessException.class)
@@ -115,7 +122,7 @@ class ReviewServiceTest {
         User requester = user(1L, 100);
         User provider = user(2L, 100);
         Order order = completedOrder(requester, provider, true);
-        when(orderRepository.findByIdWithDetails(20L)).thenReturn(Optional.of(order));
+        when(orderRepository.findLockedById(20L)).thenReturn(Optional.of(order));
         when(reviewRepository.existsByOrder_Id(20L)).thenReturn(true);
 
         assertThatThrownBy(() -> reviewService.submitReview(20L, 1L, 5, "重复评价"))
@@ -150,6 +157,9 @@ class ReviewServiceTest {
         order.setProvider(provider);
         order.setTask(task);
         order.setStatus(OrderStatus.completed);
+        order.setPayerId(requester.getId());
+        order.setPayeeId(provider.getId());
+        order.setReviewEligibleAt(com.campushub.support.BusinessFixtures.NOW.minusDays(1));
         return order;
     }
 }

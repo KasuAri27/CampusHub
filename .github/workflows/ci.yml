@@ -1,0 +1,117 @@
+# GitHub 是当前协作仓库；这里实际执行检查，不依赖不会在 GitHub 运行的 GitLab 配置。
+name: CampusHub CI
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: campushub-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend-${{ matrix.database }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - database: h2
+            url: jdbc:h2:mem:campushub_it;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+            driver: org.h2.Driver
+            username: sa
+            password: ''
+          - database: mysql
+            url: jdbc:mysql://127.0.0.1:3306/campushub_ci?serverTimezone=Asia/Shanghai&sslMode=DISABLED&allowPublicKeyRetrieval=true
+            driver: com.mysql.cj.jdbc.Driver
+            username: root
+            password: ci-only-password
+    # 两个矩阵任务隔离运行；MySQL仅用于测试库，绝不使用生产连接与密钥。
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-password
+          MYSQL_DATABASE: campushub_ci
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-only-password --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      CAMPUSHUB_TEST_DB_URL: ${{ matrix.url }}
+      CAMPUSHUB_TEST_DB_DRIVER: ${{ matrix.driver }}
+      CAMPUSHUB_TEST_DB_USER: ${{ matrix.username }}
+      CAMPUSHUB_TEST_DB_PASSWORD: ${{ matrix.password }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: 编译、测试、打包与核心覆盖率门槛
+        working-directory: backend
+        run: mvn -B -ntp clean verify
+      - name: 在独立MySQL库验证旧结构升级及重复运行
+        if: matrix.database == 'mysql'
+        env:
+          MYSQL_CONTAINER_ID: ${{ job.services.mysql.id }}
+        run: |
+          docker exec "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password -e 'CREATE DATABASE campushub_migration_ci CHARACTER SET utf8mb4;'
+          sed '/^USE campushub;/d' backend/SQL/02-create-tables.sql | docker exec -i "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password campushub_migration_ci
+          docker exec -i "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password campushub_migration_ci < backend/src/test/resources/legacy-migration-fixture.sql
+          docker exec -i "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password campushub_migration_ci < backend/SQL/04-payment-migration.sql
+          docker exec -i "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password campushub_migration_ci < backend/SQL/04-payment-migration.sql
+          actual=$(docker exec "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password -N -B campushub_migration_ci -e "SELECT CONCAT(status,':',IF(amount_due IS NULL,'legacy','charged'),':',payment_code) FROM orders WHERE id=1")
+          test "$actual" = 'in_progress:legacy:old-proof.png'
+          copied=$(docker exec "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password -N -B campushub_migration_ci -e 'SELECT COUNT(*) FROM t_task_flea WHERE task_id=2 AND item_price=12.34')
+          test "$copied" = '1'
+      - name: 保存失败报告与覆盖率
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-reports-${{ matrix.database }}
+          path: |
+            backend/target/surefire-reports/
+            backend/target/site/jacoco/
+          retention-days: 14
+      - name: 保存可部署程序
+        if: success() && matrix.database == 'mysql'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-jar
+          path: backend/target/campushub-*.jar
+          retention-days: 7
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 严格安装锁定依赖
+        working-directory: frontend
+        run: npm ci
+      - name: 全文件检查、单元测试、生产构建
+        working-directory: frontend
+        run: |
+          npm run check
+          npm test
+          npm run build
+      - name: 保存前端构建产物
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 7

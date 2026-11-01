@@ -40,9 +40,19 @@ class OrderServiceTest {
 
     @Mock
     private NotificationService notificationService;
+    @Mock private com.campushub.chat.service.ChatIntegrationService chatIntegrationService;
+    @Mock private OrderLifecycleService lifecycle;
+    @Mock private OrderLocks locks;
 
     @InjectMocks
     private OrderService orderService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void configureClock() {
+        // 显式构造：增加生产依赖时测试直接编译失败，而不是运行时注入null。
+        orderService = new OrderService(taskRepository, userRepository, orderRepository, notificationService,
+                chatIntegrationService, lifecycle, com.campushub.support.BusinessFixtures.CLOCK, locks);
+    }
 
     @Test
     void acceptTaskCreatesOrderAndMovesTaskToInProgress() {
@@ -50,7 +60,7 @@ class OrderServiceTest {
         User provider = user(2L, User.Role.provider);
         Task task = task(10L, requester, TaskStatus.published, new BigDecimal("12.50"));
 
-        when(taskRepository.findById(10L)).thenReturn(Optional.of(task));
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
         when(userRepository.findById(2L)).thenReturn(Optional.of(provider));
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
             Order order = invocation.getArgument(0);
@@ -67,7 +77,9 @@ class OrderServiceTest {
         assertThat(saved.getRequester()).isSameAs(requester);
         assertThat(saved.getProvider()).isSameAs(provider);
         assertThat(saved.getStatus()).isEqualTo(OrderStatus.in_progress);
-        assertThat(saved.getPaymentCode()).isEqualTo("pay-code.png");
+        assertThat(saved.getAmountDue()).isEqualByComparingTo("12.50");
+        assertThat(saved.getPayerId()).isEqualTo(1L);
+        assertThat(saved.getPaymentStatus()).isEqualTo(Order.PaymentStatus.unpaid);
         assertThat(task.getStatus()).isEqualTo(TaskStatus.in_progress);
         assertThat(dto.getOrderId()).isEqualTo(99L);
         assertThat(dto.getOrderStatus()).isEqualTo("in_progress");
@@ -78,7 +90,7 @@ class OrderServiceTest {
     void acceptTaskRejectsRequesterAcceptingOwnTask() {
         User requester = user(1L, User.Role.requester);
         Task task = task(10L, requester, TaskStatus.published, BigDecimal.ZERO);
-        when(taskRepository.findById(10L)).thenReturn(Optional.of(task));
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
 
         assertThatThrownBy(() -> orderService.acceptTask(10L, 1L))
                 .isInstanceOf(BusinessException.class)
@@ -90,32 +102,19 @@ class OrderServiceTest {
     }
 
     @Test
-    void acceptTaskRequiresPaymentCodeForPaidTask() {
-        User requester = user(1L, User.Role.requester);
-        Task task = task(10L, requester, TaskStatus.published, new BigDecimal("8.00"));
-        when(taskRepository.findById(10L)).thenReturn(Optional.of(task));
-
-        assertThatThrownBy(() -> orderService.acceptTask(10L, 2L))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("有偿需求必须上传收款码图片");
-
+    void acceptTaskRejectsLowCreditBeforeCreatingOrder() {
+        User requester = user(1L, User.Role.requester), provider = user(2L, User.Role.provider);
+        provider.setCreditScore(69);
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task(10L, requester, TaskStatus.published, BigDecimal.ZERO)));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(provider));
+        assertThatThrownBy(() -> orderService.acceptTask(10L, 2L)).isInstanceOf(BusinessException.class).hasMessageContaining("低于70");
         verify(orderRepository, never()).save(any());
-        assertThat(task.getStatus()).isEqualTo(TaskStatus.published);
     }
 
     @Test
-    void completeOrderAllowsRequesterAndCompletesTask() {
-        User requester = user(1L, User.Role.requester);
-        User provider = user(2L, User.Role.provider);
-        Task task = task(10L, requester, TaskStatus.in_progress, BigDecimal.ZERO);
-        Order order = order(20L, task, requester, provider, OrderStatus.in_progress);
-        when(orderRepository.findByIdWithDetails(20L)).thenReturn(Optional.of(order));
-
+    void completeOrderDelegatesAcceptanceToLifecycleService() {
         orderService.completeOrder(20L, 1L);
-
-        assertThat(order.getStatus()).isEqualTo(OrderStatus.completed);
-        assertThat(order.getCompletedAt()).isNotNull();
-        assertThat(task.getStatus()).isEqualTo(TaskStatus.completed);
+        verify(lifecycle).acceptCompletion(20L, 1L);
     }
 
     @Test
@@ -124,7 +123,7 @@ class OrderServiceTest {
         User provider = user(2L, User.Role.provider);
         Task task = task(10L, requester, TaskStatus.in_progress, BigDecimal.ZERO);
         Order order = order(20L, task, requester, provider, OrderStatus.in_progress);
-        when(orderRepository.findByIdWithDetails(20L)).thenReturn(Optional.of(order));
+        when(locks.lock(20L)).thenReturn(order);
 
         orderService.cancelOrder(20L, 2L);
 

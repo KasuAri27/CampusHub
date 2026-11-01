@@ -22,12 +22,17 @@ class NotificationServiceTest {
 
     @Mock
     private NotificationRepository notificationRepository;
+    @Mock private com.campushub.chat.service.ConversationService convService;
+    @Mock private com.campushub.chat.service.MessageService msgService;
 
     @InjectMocks
     private NotificationService notificationService;
 
     @Test
     void createNotificationDefaultsToUnread() {
+        var conversation = new com.campushub.chat.entity.Conversation();
+        conversation.setId(50L);
+        when(convService.getOrCreateSystemNotify(1L)).thenReturn(conversation);
         notificationService.createNotification(1L, "订单通知", "有人接单", "ORDER");
 
         ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
@@ -38,6 +43,7 @@ class NotificationServiceTest {
         assertThat(saved.getContent()).isEqualTo("有人接单");
         assertThat(saved.getType()).isEqualTo("ORDER");
         assertThat(saved.getIsRead()).isFalse();
+        verify(msgService).saveAndGet(50L, 0L, "【订单通知】有人接单", "SYSTEM");
     }
 
     @Test
