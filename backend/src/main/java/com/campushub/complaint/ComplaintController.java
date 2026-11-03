@@ -10,6 +10,10 @@ import java.util.List;
 @RestController
 @RequestMapping("/v1/complaints")
 @RequiredArgsConstructor
+/**
+ * 订单投诉与争议裁决控制器。
+ * 支持订单参与双方提交履约纠纷投诉，仅限订单当事人与平台管理员查阅详情。
+ */
 public class ComplaintController {
 
     private final ComplaintService complaintService;

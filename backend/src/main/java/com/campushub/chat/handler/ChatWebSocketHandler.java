@@ -21,6 +21,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @Component
+/**
+ * WebSocket 实时通信处理器。
+ * 负责连接鉴权、在线会话并发映射、心跳响应（PING/PONG）、消息实时路由及消息撤回广播。
+ */
 public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ChatWebSocketHandler.class);
@@ -41,6 +45,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         this.users = users;
     }
 
+    /**
+     * 握手建立后认证：从 query 参数解析 token，校验账号状态，并将会话加入该用户的在线列表中。
+     * 单个用户支持多端/多页面并发连接。
+     */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         Long userId = getUserId(session);
@@ -53,6 +61,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         log.debug("WS connected: userId={}", userId);
     }
 
+    /** 广播撤回事件：向指定会话内所有在线成员推送 RECALL 指令，客户端据此更新消息展示。 */
     private void broadcastRecall(Long convId, MessageDTO dto) {
         List<Long> memberIds = convService.getMemberIds(convId);
         String json;
@@ -159,6 +168,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         try { session.sendMessage(new TextMessage(json)); } catch (IOException ignored) {}
     }
 
+    /**
+     * 从 WebSocket 请求路径的查询参数提取 token 并校验身份有效性；
+     * 仅允许状态为激活（status=1）的用户建立连接。
+     */
     private Long getUserId(WebSocketSession session) {
         String query = session.getUri() != null ? session.getUri().getQuery() : null;
         if (query == null) return null;

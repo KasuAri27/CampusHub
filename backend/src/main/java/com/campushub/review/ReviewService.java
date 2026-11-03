@@ -16,6 +16,10 @@ import com.campushub.user.CreditService;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 履约评价核心领域服务。
+ * 负责7天评价时效校验、分类评价准入、自动四星兜底及信用分联动的单向结算。
+ */
 public class ReviewService {
 
     private final NotificationService notificationService;

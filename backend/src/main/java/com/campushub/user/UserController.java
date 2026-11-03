@@ -9,15 +9,18 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/v1/auth")
 @RequiredArgsConstructor
+/** 用户账号与认证控制器，提供学号注册、手机密码/短信登录、个人资料查看及密码更新。 */
 public class UserController {
 
     private final UserService userService;
 
+    /** 新用户注册：校验短信验证码与学号唯一性，手机号进行 AES 密文存储，并自动绑定校内邮箱。 */
     @PostMapping("/register")
     public ApiResponse<LoginResponse> register(@Valid @RequestBody RegisterRequest request) {
         return ApiResponse.success(userService.register(request));
     }
 
+    /** 账号密码登录：支持输入学号或 11 位手机号（内部自适应加密查验）。 */
     @PostMapping("/login/password")
     public ApiResponse<LoginResponse> loginWithPassword(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.success(userService.loginWithPassword(request));

@@ -13,6 +13,10 @@ import java.util.List;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/**
+ * 需求超期自动清理调度器。
+ * 定时扫描超过截止时间且仍无人接单的待接单需求，通过乐观条件更新自动将其取消并通知发布者。
+ */
 public class TaskAutoCancelScheduler {
 
     private final TaskRepository taskRepository;

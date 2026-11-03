@@ -10,6 +10,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/v1/orders")
 @RequiredArgsConstructor
+/** 订单履约控制器，负责接单成单、提交交付、确认验收、取消履约及履约历史查询。 */
 public class OrderController {
 
     private final OrderService orderService;
@@ -20,12 +21,14 @@ public class OrderController {
         return ApiResponse.success(orderService.getByTaskId(taskId, UserContext.getCurrentUserId()));
     }
 
+    /** 用户接单：严格校验发布状态、截止期、信誉分门槛（>=70）及防自接，生成履约订单。 */
     @PostMapping("/accept")
     public ApiResponse<OrderDTO> acceptTask(@RequestParam Long taskId) {
         Long currentUserId = UserContext.getCurrentUserId();
         return ApiResponse.success(orderService.acceptTask(taskId, currentUserId));
     }
 
+    /** 需求方主动确认验收完成，转入待付款/待评价状态。 */
     @PostMapping("/{orderId}/complete")
     public ApiResponse<Void> completeOrder(@PathVariable Long orderId) {
         Long currentUserId = UserContext.getCurrentUserId();
@@ -50,6 +53,7 @@ public class OrderController {
         return ApiResponse.success(orderService.getDetail(orderId, UserContext.getCurrentUserId()));
     }
 
+    /** 取消订单：仅进行中且无争议订单允许取消；接单人取消且未过期时需求将自动重新开放。 */
     @PostMapping("/{orderId}/cancel")
     public ApiResponse<Void> cancelOrder(@PathVariable Long orderId) {
         Long currentUserId = UserContext.getCurrentUserId();

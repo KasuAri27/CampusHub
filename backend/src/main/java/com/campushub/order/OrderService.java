@@ -23,6 +23,10 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 订单业务领域服务。
+ * 处理需求接取转订单、多形态交易角色判定（二手买卖倒置）、多成员组队订单管理及取消重开逻辑。
+ */
 public class OrderService {
 
     private final TaskRepository taskRepository;
@@ -44,6 +48,13 @@ public class OrderService {
         return toDTO(order);
     }
 
+    /**
+     * 任务接单核心流程：
+     * 1. 悲观行锁锁定任务，拦截超期与自接；
+     * 2. 校验服务方信用分必须不低于70分；
+     * 3. 角色判定：二手买卖模式下，接单人为买方（付款人），发布者为卖家（收款人）；
+     * 4. 组队任务金额为0且订单状态互不阻塞。
+     */
     @Transactional
     public OrderDTO acceptTask(Long taskId, Long currentUserId) {
         Task task = taskRepository.findLockedById(taskId)
@@ -114,6 +125,11 @@ public class OrderService {
         lifecycle.acceptCompletion(orderId, currentUserId);
     }
 
+    /**
+     * 取消订单：
+     * 需求方取消组队任务时级联取消所有进行中队友订单（前提是无待验收/争议）；
+     * 接单人主动退出且任务仍在截止期内时，任务自动回滚为 published 重新面向全校接单。
+     */
     @Transactional
     public void cancelOrder(Long orderId, Long currentUserId) {
         Order order = locks.lock(orderId);

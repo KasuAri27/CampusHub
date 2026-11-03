@@ -9,6 +9,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/**
+ * 信用分每日恢复调度器。
+ * 每天零点利用数据库日期唯一键进行集群互斥，为信誉受损（低于70分）的用户自动补偿恢复1点信用分。
+ */
 public class CreditScoreScheduler {
 
     private final UserRepository userRepository;

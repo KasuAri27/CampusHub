@@ -1,6 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
+/**
+ * 用户会话与权限状态管理 Store。
+ * 维护登录凭证 JWT、当前用户角色（发布者/接单人/管理员）、信用分及限制状态，并支持跨页面持久化。
+ */
 export const useUserStore = defineStore('user', () => {
   const API_ORIGIN = 'http://localhost:8080'
 
@@ -12,6 +16,7 @@ export const useUserStore = defineStore('user', () => {
   const token = ref(null)
   const restricted = ref(false)
 
+  /** 统一头像访问地址：相对路径自动拼接后端 API Origin，绝对 URL 保持不变。 */
   function normalizeAvatarUrl(url) {
     if (!url) return null
     if (/^https?:\/\//i.test(url)) return url
@@ -81,6 +86,10 @@ export const useUserStore = defineStore('user', () => {
   /** 普通用户在需求方/服务方之间切换身份 */
   /** 普通用户在需求方/服务方之间切换身份 */
   // 在 userStore.js 中修改 switchRole 方法
+  /**
+   * 切换用户身份（需求方 <-> 服务方）：
+   * 管理员或受限用户禁止切换；成功调用后端接口后才同步变更客户端角色。
+   */
   async function switchRole() {
     if (role.value === 'admin' || restricted.value) return
 

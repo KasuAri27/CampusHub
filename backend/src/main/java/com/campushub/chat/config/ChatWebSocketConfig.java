@@ -8,6 +8,7 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 
 @Configuration
 @EnableWebSocket
+/** WebSocket 聊天通道端点配置，注册 /ws/chat 实时长连接端点并放行跨域握手。 */
 public class ChatWebSocketConfig implements WebSocketConfigurer {
 
     private final ChatWebSocketHandler handler;

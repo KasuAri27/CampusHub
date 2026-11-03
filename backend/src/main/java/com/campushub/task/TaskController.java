@@ -19,10 +19,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/v1/tasks")
 @RequiredArgsConstructor
+/** 需求发布与检索控制器，支持多类别互助需求创建、发布者主动下架、公共广场分页筛选及个人需求查询。 */
 public class TaskController {
 
     private final TaskService taskService;
 
+    /** 发布新需求：要求发起人信用分 >= 70；生成后进入待审核状态并通知管理员。 */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<TaskDTO> createTask(@Valid @RequestBody TaskCreateRequest request) {
@@ -30,6 +32,7 @@ public class TaskController {
         return ApiResponse.success(taskService.createTask(request, userId));
     }
 
+    /** 用户撤回/删除自己发布的需求；已有订单历史时转为已取消以保留审计，无订单时物理删除。 */
     @DeleteMapping("/{id}")
     public ApiResponse<Void> deleteTask(@PathVariable Long id) {
         Long userId = UserContext.getCurrentUserId();

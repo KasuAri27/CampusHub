@@ -18,6 +18,7 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+/** 聊天消息存取与撤回服务，统一校验会话成员资格与撤回时效。 */
 public class MessageService {
 
     private final MessageRepository msgRepo;
@@ -25,6 +26,7 @@ public class MessageService {
     private final com.campushub.chat.repository.ConversationRepository conversations;
     private final com.campushub.chat.repository.ConversationMemberRepository members;
 
+    /** 发送并持久化消息：非系统消息需校验成员资格，仅允许 TEXT 与 IMAGE 类型。 */
     @Transactional
     public MessageDTO saveAndGet(Long convId, Long senderId, String content, String msgType) {
         if (senderId != 0L) {
@@ -73,6 +75,10 @@ public class MessageService {
         return new PageResult<>(items, new PageResult.Pagination(page, size, msgPage.getTotalElements(), msgPage.getTotalPages()));
     }
 
+    /**
+     * 消息撤回：严格限制2分钟时效且仅允许发送人撤回；
+     * 数据库保留原始文本和类型，仅置 isRecalled=true，用于管理后台审计取证。
+     */
     @Transactional
     public MessageDTO recallMessage(Long msgId, Long userId) {
         Message msg = msgRepo.findById(msgId)

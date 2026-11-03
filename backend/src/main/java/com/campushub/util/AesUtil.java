@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 @Component
+/** AES 对称加解密工具类，用于手机号、银行流水凭据等敏感个人信息的落库加密存储与查询解密。 */
 public class AesUtil {
 
     @Value("${aes.secret-key}")

@@ -18,6 +18,10 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 用户与认证领域服务。
+ * 负责手机号 AES 加解密落库、BCrypt 密码校验、Spring Security 登录集成及信息脱敏展示。
+ */
 public class UserService implements UserDetailsService {
 
     private final UserRepository userRepository;

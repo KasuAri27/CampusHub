@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/v1/notifications")
 @RequiredArgsConstructor
+/** 站内通知端点控制器，支持分页拉取通知、未读数统计及单条/全量一键已读。 */
 public class NotificationController {
 
     private final NotificationService notificationService;

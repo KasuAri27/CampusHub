@@ -29,6 +29,10 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 互助需求领域业务服务。
+ * 负责多形态任务创建（辅导按时长计价/跑腿/二手买卖/组队）、多维度列表过滤（未过期置顶）、可见性控制与安全删除。
+ */
 public class TaskService {
 
     private final TaskRepository taskRepository;
@@ -36,6 +40,12 @@ public class TaskService {
     private final UserRepository userRepository;
     private final com.campushub.notification.NotificationService notificationService;
 
+    /**
+     * 创建需求业务流程：
+     * 校验发布资格（角色为 requester 且信用分不低于70分）；
+     * 根据 taskType 实例化对应的多态实体，计算价格或初始化群人数；
+     * 状态置为 pending_review，触发全量管理员审核站内通知。
+     */
     @Transactional
     public TaskDTO createTask(TaskCreateRequest request, Long userId) {
         User requester = userRepository.findById(userId)
@@ -225,6 +235,11 @@ public class TaskService {
         return toDTO(task);
     }
 
+    /**
+     * 需求发布者撤销需求：
+     * 校验仅限发布者本人操作且当前处于 published 状态；
+     * 若该需求曾产生过订单历史，则软下架为 cancelled 以保留凭证，无任何订单时方可物理删除。
+     */
     @Transactional
     public void deleteOwnTask(Long userId, Long taskId) {
         Task task = taskRepository.findById(taskId)

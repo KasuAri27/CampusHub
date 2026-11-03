@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+/** 订单投诉与仲裁核心服务，处理履约争议提交、自动挂起判定及管理员预警通知。 */
 public class ComplaintService {
 
     private final ComplaintRepository complaintRepository;
@@ -24,6 +25,11 @@ public class ComplaintService {
     private final OrderLifecycleService lifecycle;
     private final com.campushub.order.OrderLocks locks;
 
+    /**
+     * 提交投诉并裁定是否挂起订单：
+     * 仅当需求验收方因服务未完成或质量不符投诉时，才将订单标记为争议中以暂停自动验收倒计时；
+     * 服务提供方发起的催款投诉不能反向暂停追缴逾期。
+     */
     @Transactional
     public void submitComplaint(Long complainantId, ComplaintRequest req) {
         var order = locks.lock(req.getOrderId());
@@ -87,6 +93,7 @@ public class ComplaintService {
         requireAccess(complaint.getOrderId(), actorId);
         return complaint;
     }
+    /** 权限隔离：仅订单当事人（需求方/服务方）或具备正常权限的系统管理员可以查阅投诉证据。 */
     private void requireAccess(Long orderId, Long actorId) {
         var order = orderRepository.findById(orderId).orElseThrow(() -> new BusinessException(404, "订单不存在"));
         boolean participant = order.getRequester().getId().equals(actorId) || order.getProvider().getId().equals(actorId);

@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 
 @Data
 @Builder
+/** 订单核心传输对象，综合关联任务信息、履约双方身份、付款/结算全链路状态及争议信息。 */
 public class OrderDTO {
 
     private Long orderId;

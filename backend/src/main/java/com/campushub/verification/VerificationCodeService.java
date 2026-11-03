@@ -18,6 +18,10 @@ import java.util.Random;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 验证码生命周期管理服务。
+ * 负责验证码安全生成（SecureRandom）、旧码失效覆盖、5分钟有效期校验及校园邮箱模拟发送。
+ */
 public class VerificationCodeService {
     private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
 

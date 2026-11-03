@@ -12,6 +12,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 业务领域与聊天模块的联动服务。
+ * 负责在任务审核通过、接单、取消订单、任务完成等业务生命周期节点，自动维护对应的群聊或私聊会话及系统通知。
+ */
 public class ChatIntegrationService {
 
     private final ConversationService convService;
@@ -38,6 +42,7 @@ public class ChatIntegrationService {
                 ownerName + " 创建了群聊", "SYSTEM");
     }
 
+    /** 接单后自动建联：组队任务将成员加入团队群并校验容量；单人任务则自动建立两人私聊通道。 */
     @Transactional
     public void handleAfterAccept(Task task, Long orderId, Long providerId) {
         String providerName = userName(providerId);
@@ -65,6 +70,7 @@ public class ChatIntegrationService {
         }
     }
 
+    /** 订单取消时的会话处理：发起人取消将触发组队群解散提示，普通成员取消则移出群聊并广播动态。 */
     @Transactional
     public void handleCancelOrder(Task task, Long userId, boolean isRequester) {
         String uname = userName(userId);

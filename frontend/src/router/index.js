@@ -21,6 +21,10 @@ const routes = [
 
 const router = createRouter({ history: createWebHistory(), routes })
 
+/**
+ * 全局前置导航守卫。
+ * 负责会话持久化恢复、受限账号（冻结用户仅允许访问订单与申诉页）隔离与管理员路径越权拦截。
+ */
 router.beforeEach(async (to, from, next) => {
   if (to.path === '/login') { next(); return }
 

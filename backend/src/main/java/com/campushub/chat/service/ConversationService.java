@@ -24,6 +24,7 @@ import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
+/** 会话核心业务服务，涵盖会话列表拉取、未读计数统计、成员进退群、群解散与保留机制。 */
 public class ConversationService {
 
     private final ConversationRepository convRepo;
@@ -32,6 +33,7 @@ public class ConversationService {
     private final UserRepository userRepo;
     private final TaskRepository taskRepo;
 
+    /** 查询当前用户可见的所有会话，聚合各会话最新一条发言、未读消息数及解散操作权限。 */
     @Transactional(readOnly = true)
     public List<ConversationDTO> listConversations(Long userId) {
         // 如果这里是给用户用的，查出来之后过滤掉被软删除的
