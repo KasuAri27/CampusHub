@@ -3,6 +3,10 @@ import { ref } from 'vue'
 import { useUserStore } from '@/user/userStore'
 import chatApi from '@/chat/chatApi'
 
+/**
+ * 聊天与长连接状态管理 Store。
+ * 负责 WebSocket 维持（30秒心跳保活与指数退避重连）、发送/撤回乐观更新及会话未读数汇聚。
+ */
 export const useChatStore = defineStore('chat', () => {
     const conversations = ref([])
     const messages = ref({})
@@ -115,6 +119,7 @@ export const useChatStore = defineStore('chat', () => {
         }
     }
 
+    /** 指数退避断线重连（上限16秒，最多重试5次），避免网络抖动或服务端重启时引起连接风暴。 */
     function scheduleReconnect() {
         if (reconnectCount >= 5) return
         clearTimeout(reconnectTimer)
@@ -144,6 +149,9 @@ export const useChatStore = defineStore('chat', () => {
         fetchConversations()
     }
 
+    /**
+     * 乐观更新发送消息：立即将带 temp_ 前缀的消息插入视图，待 HTTP 确认为真实单号后替换，失败则回退。
+     */
     async function sendMessage(convId, content, msgType = 'TEXT') {
         const userStore = useUserStore()
         const tempId = 'temp_' + Date.now()

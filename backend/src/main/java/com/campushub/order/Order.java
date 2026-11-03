@@ -15,8 +15,8 @@ import java.time.LocalDateTime;
 @Table(name = "orders")
 @Getter
 @Setter
-@Builder                         // 新增：提供 builder() 方法
-@NoArgsConstructor               // 新增：JPA 要求的无参构造
+@Builder
+@NoArgsConstructor
 @AllArgsConstructor
 public class Order {
 
@@ -37,8 +37,9 @@ public class Order {
     private User provider;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, columnDefinition = "ENUM('accepted','in_progress','completed','cancelled')")
-    private OrderStatus status = OrderStatus.accepted;
+    @Column(nullable = false, length = 32)
+    @Builder.Default
+    private OrderStatus status = OrderStatus.in_progress;
 
     @Column(name = "accepted_at", nullable = false)
     private LocalDateTime acceptedAt;
@@ -52,18 +53,48 @@ public class Order {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
-    @Column(name = "payment_code", length = 255)
-    private String paymentCode;
+    /** 接单时冻结总金额与买卖双方，二手出售时买家是接单人，不按用户角色猜资金方向。 */
+    @Column(precision = 10, scale = 2)
+    private java.math.BigDecimal amountDue;
+    private Long payerId;
+    private Long payeeId;
+
+    /** 履约、支付、结算分开：completed 只表示已验收，不代表资金已经到账。 */
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    private PaymentStatus paymentStatus = PaymentStatus.not_required;
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    private SettlementStatus settlementStatus = SettlementStatus.not_required;
+    private LocalDateTime completionSubmittedAt;
+    private LocalDateTime acceptanceDueAt;
+    private LocalDateTime paymentDueAt;
+    private LocalDateTime overdueAt;
+    private LocalDateTime escalationDueAt;
+    private LocalDateTime escalatedAt;
+    private LocalDateTime paidAt;
+    private LocalDateTime reviewEligibleAt;
+    private LocalDateTime settledAt;
+
+    /** 争议打开后扫描器只跳过，不把暂停误当付款；裁决重新给出付款期限。 */
+    @Builder.Default
+    private boolean disputed = false;
+    private LocalDateTime disputedAt;
+    @Column(length = 1000)
+    private String disputeReason;
 
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
     public enum OrderStatus {
-        accepted,
         in_progress,
+        awaiting_acceptance,
         completed,
         cancelled
     }
+
+    public enum PaymentStatus { not_required, unpaid, paid }
+    public enum SettlementStatus { not_required, pending, recorded }
 
     @PrePersist
     protected void onCreate() {

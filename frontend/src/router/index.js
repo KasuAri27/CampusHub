@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
+  { path: '/admin/finance', name: 'Finance', component: () => import('@/admin/FinanceManagement.vue'), meta: { requiresAuth: true } },
   { path: '/login',         name: 'Login',       component: () => import('@/views/LoginRegister.vue')},
   { path: '/',              name: 'TaskList',    component: () => import('@/task/TaskListView.vue') },
   { path: '/tasks/:id',     name: 'TaskDetail',  component: () => import('@/task/TaskDetailView.vue') },
@@ -20,6 +21,10 @@ const routes = [
 
 const router = createRouter({ history: createWebHistory(), routes })
 
+/**
+ * 全局前置导航守卫。
+ * 负责会话持久化恢复、受限账号（冻结用户仅允许访问订单与申诉页）隔离与管理员路径越权拦截。
+ */
 router.beforeEach(async (to, from, next) => {
   if (to.path === '/login') { next(); return }
 
@@ -33,6 +38,10 @@ router.beforeEach(async (to, from, next) => {
 
   if (to.meta.requiresAuth && !userStore.isLoggedIn) {
     next('/login')
+  } else if (userStore.restricted && !['/my-orders', '/profile'].includes(to.path)) {
+    next('/my-orders')
+  } else if (to.path.startsWith('/admin') && !userStore.isAdmin) {
+    next('/')
   } else {
     next()
   }

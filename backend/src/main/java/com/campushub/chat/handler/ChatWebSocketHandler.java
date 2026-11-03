@@ -21,6 +21,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @Component
+/**
+ * WebSocket 实时通信处理器。
+ * 负责连接鉴权、在线会话并发映射、心跳响应（PING/PONG）、消息实时路由及消息撤回广播。
+ */
 public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ChatWebSocketHandler.class);
@@ -32,13 +36,19 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final JwtUtil jwtUtil;
     private final MessageService msgService;
     private final ConversationService convService;
+    private final com.campushub.user.UserRepository users;
 
-    public ChatWebSocketHandler(JwtUtil jwtUtil, MessageService msgService, ConversationService convService) {
+    public ChatWebSocketHandler(JwtUtil jwtUtil, MessageService msgService, ConversationService convService, com.campushub.user.UserRepository users) {
         this.jwtUtil = jwtUtil;
         this.msgService = msgService;
         this.convService = convService;
+        this.users = users;
     }
 
+    /**
+     * 握手建立后认证：从 query 参数解析 token，校验账号状态，并将会话加入该用户的在线列表中。
+     * 单个用户支持多端/多页面并发连接。
+     */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         Long userId = getUserId(session);
@@ -51,6 +61,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         log.debug("WS connected: userId={}", userId);
     }
 
+    /** 广播撤回事件：向指定会话内所有在线成员推送 RECALL 指令，客户端据此更新消息展示。 */
     private void broadcastRecall(Long convId, MessageDTO dto) {
         List<Long> memberIds = convService.getMemberIds(convId);
         String json;
@@ -76,6 +87,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         Long userId = (Long) session.getAttributes().get("userId");
         if (userId == null) return;
+        if (users.findById(userId).filter(user -> user.getStatus() == 1).isEmpty()) {
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
+        }
 
         JsonNode json = mapper.readTree(message.getPayload());
         String type = json.has("type") ? json.get("type").asText() : "";
@@ -96,7 +111,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 try {
                     MessageDTO dto = msgService.recallMessage(msgId, userId);
                     // 广播撤回事件，类型设为 RECALL
-                    broadcastRecall(convId, dto);
+                    // 按真实消息的会话广播，不能信任客户端另传的convId。
+                    broadcastRecall(dto.getConvId(), dto);
                 } catch (Exception e) {
                     log.error("撤回失败", e);
                 }
@@ -152,6 +168,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         try { session.sendMessage(new TextMessage(json)); } catch (IOException ignored) {}
     }
 
+    /**
+     * 从 WebSocket 请求路径的查询参数提取 token 并校验身份有效性；
+     * 仅允许状态为激活（status=1）的用户建立连接。
+     */
     private Long getUserId(WebSocketSession session) {
         String query = session.getUri() != null ? session.getUri().getQuery() : null;
         if (query == null) return null;
@@ -159,7 +179,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             String[] pair = param.split("=", 2);
             if (pair.length == 2 && "token".equals(pair[0])) {
                 try {
-                    return jwtUtil.getUserIdFromToken(pair[1]);
+                    Long userId = jwtUtil.getUserIdFromToken(pair[1]);
+                    return users.findById(userId).filter(user -> user.getStatus() == 1).isPresent() ? userId : null;
                 } catch (Exception e) {
                     return null;
                 }

@@ -17,6 +17,22 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    /** 绑定或JSON格式错误属于客户端请求错误，不输出原始支付报文或内部异常。 */
+    @ExceptionHandler({org.springframework.http.converter.HttpMessageNotReadableException.class,
+            org.springframework.web.bind.MissingServletRequestParameterException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<ApiResponse<Void>> handleMalformedRequest(Exception ex) {
+        return ResponseEntity.badRequest().body(ApiResponse.error(400, "请求参数格式不正确"));
+    }
+
+    /** 唯一键冲突包括重复支付流水/结算流水；数据库回滚后要求重新核对，不当作成功。 */
+    @ExceptionHandler({org.springframework.dao.DataIntegrityViolationException.class,
+            org.springframework.dao.OptimisticLockingFailureException.class})
+    public ResponseEntity<ApiResponse<Void>> handleConflict(Exception ex) {
+        log.warn("数据并发或唯一约束冲突，type={}", ex.getClass().getSimpleName());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(409, "记录冲突，请刷新并核对是否已处理"));
+    }
+
     /**
      * 处理业务异常.
      */
@@ -54,7 +70,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleException(Exception ex) {
         log.error("系统异常", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error(500, "服务器内部错误", ex.getMessage()));
+                .body(ApiResponse.error(500, "服务器内部错误"));
     }
 
     /**
@@ -67,6 +83,9 @@ public class GlobalExceptionHandler {
             case 404 -> HttpStatus.NOT_FOUND;
             case 409 -> HttpStatus.CONFLICT;
             case 429 -> HttpStatus.TOO_MANY_REQUESTS;
+            case 500 -> HttpStatus.INTERNAL_SERVER_ERROR;
+            case 502 -> HttpStatus.BAD_GATEWAY;
+            case 503 -> HttpStatus.SERVICE_UNAVAILABLE;
             default -> HttpStatus.BAD_REQUEST;
         };
     }

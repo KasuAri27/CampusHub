@@ -146,8 +146,8 @@ const sendSmsCode = async (type) => {
   try {
     const res = await http.post('/verification/send', { phone, type, studentId })
     if (res.data.code === 200) {
-      const code = res.data.data
-      ElMessage.info(`验证码已发送（测试：${code}）`)
+      // 验证码通过已配置渠道发送，页面不回显认证秘密。
+      ElMessage.info('验证码已发送，请查看验证渠道')
       if (type === 'REGISTER') startCountdown('reg')
       else startCountdown('login')
     } else {

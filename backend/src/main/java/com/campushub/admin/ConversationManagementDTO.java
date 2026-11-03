@@ -12,6 +12,7 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+/** 管理端会话监管视图，展示群聊/私聊成员信息、最后一条发言摘要及撤回状态。 */
 public class ConversationManagementDTO {
     private Long id;
     private String convType;

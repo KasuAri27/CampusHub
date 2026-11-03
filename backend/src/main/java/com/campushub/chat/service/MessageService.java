@@ -18,13 +18,22 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+/** 聊天消息存取与撤回服务，统一校验会话成员资格与撤回时效。 */
 public class MessageService {
 
     private final MessageRepository msgRepo;
     private final UserRepository userRepo;
+    private final com.campushub.chat.repository.ConversationRepository conversations;
+    private final com.campushub.chat.repository.ConversationMemberRepository members;
 
+    /** 发送并持久化消息：非系统消息需校验成员资格，仅允许 TEXT 与 IMAGE 类型。 */
     @Transactional
     public MessageDTO saveAndGet(Long convId, Long senderId, String content, String msgType) {
+        if (senderId != 0L) {
+            requireMember(convId, senderId);
+            if (!"TEXT".equals(msgType) && !"IMAGE".equals(msgType) && msgType != null)
+                throw new BusinessException(400, "用户只能发送文本或图片消息");
+        }
         Message msg = new Message();
         msg.setConvId(convId);
         msg.setSenderId(senderId);
@@ -45,7 +54,9 @@ public class MessageService {
     }
 
     @Transactional(readOnly = true)
-    public PageResult<MessageDTO> getHistory(Long convId, int page, int size) {
+    public PageResult<MessageDTO> getHistory(Long convId, int page, int size, Long actorId) {
+        requireMember(convId, actorId);
+        if (page < 1 || size < 1 || size > 100) throw new BusinessException(400, "消息分页参数不合法");
         PageRequest pageable = PageRequest.of(page - 1, size);
         Page<Message> msgPage = msgRepo.findByConvIdOrderByCreatedAtDesc(convId, pageable);
 
@@ -64,10 +75,15 @@ public class MessageService {
         return new PageResult<>(items, new PageResult.Pagination(page, size, msgPage.getTotalElements(), msgPage.getTotalPages()));
     }
 
+    /**
+     * 消息撤回：严格限制2分钟时效且仅允许发送人撤回；
+     * 数据库保留原始文本和类型，仅置 isRecalled=true，用于管理后台审计取证。
+     */
     @Transactional
     public MessageDTO recallMessage(Long msgId, Long userId) {
         Message msg = msgRepo.findById(msgId)
                 .orElseThrow(() -> new BusinessException("消息不存在"));
+        requireMember(msg.getConvId(), userId);
 
         if (!msg.getSenderId().equals(userId)) {
             throw new BusinessException("只能撤回自己的消息");
@@ -96,5 +112,10 @@ public class MessageService {
     private String getSenderName(Long userId) {
         User sender = userRepo.findById(userId).orElse(null);
         return sender != null ? (sender.getNickname() != null ? sender.getNickname() : sender.getName()) : "未知";
+    }
+    private void requireMember(Long convId, Long actorId) {
+        var conversation = conversations.findById(convId).orElseThrow(() -> new BusinessException(404, "会话不存在"));
+        if (Boolean.TRUE.equals(conversation.getIsDeleted()) || !members.existsByConvIdAndUserId(convId, actorId))
+            throw new BusinessException(403, "无权访问此会话");
     }
 }

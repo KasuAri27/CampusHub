@@ -15,7 +15,9 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+/** 管理后台任务综合管理视图数据对象，包含任务属性、关联接单人学号及发布者评价。 */
 public class TaskManagementDTO {
+    private String taskType;
     private Long id;
     private String title;
     private String description;

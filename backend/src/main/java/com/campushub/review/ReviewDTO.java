@@ -13,4 +13,5 @@ public class ReviewDTO {
     private Integer score;
     private String comment;
     private LocalDateTime createdAt;
+    private boolean automatic;
 }

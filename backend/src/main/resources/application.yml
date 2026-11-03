@@ -24,11 +24,19 @@ spring:
 
   jackson:
     time-zone: Asia/Shanghai
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+  task:
+    scheduling:
+      pool:
+        size: 4
 
   # ========== 新增邮件配置 ==========
   mail:
     host: smtp.exmail.qq.com         # 南大 smail SMTP 服务器
-    port: 465                           
+    port: 465
     username: ${CAMPUSHUB_SMTP_USERNAME:}
     password: ${CAMPUSHUB_SMTP_PASSWORD:}
     default-encoding: UTF-8
@@ -36,6 +44,9 @@ spring:
       mail:
         smtp:
           auth: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
           trust: smtp.exmail.qq.com
           ssl:
             enable: true
@@ -52,6 +63,32 @@ jwt:
 # AES 加解密配置
 aes:
   secret-key: ${CAMPUSHUB_AES_KEY}
+
+# 支付渠道默认关闭；只在商户已签约 Native/当面付且配置真实 HTTPS 回调后启用。
+campushub:
+  scheduling:
+    enabled: ${CAMPUSHUB_SCHEDULING_ENABLED:true}
+  payment:
+    manual-settlement-enabled: true
+    evidence-directory: ${CAMPUSHUB_SETTLEMENT_EVIDENCE_DIR:private-storage/settlements}
+    wechat:
+      enabled: ${CAMPUSHUB_WECHAT_ENABLED:false}
+      app-id: ${CAMPUSHUB_WECHAT_APP_ID:}
+      merchant-id: ${CAMPUSHUB_WECHAT_MERCHANT_ID:}
+      merchant-serial-number: ${CAMPUSHUB_WECHAT_SERIAL:}
+      private-key-path: ${CAMPUSHUB_WECHAT_PRIVATE_KEY_PATH:}
+      public-key-path: ${CAMPUSHUB_WECHAT_PUBLIC_KEY_PATH:}
+      public-key-id: ${CAMPUSHUB_WECHAT_PUBLIC_KEY_ID:}
+      api-v3-key: ${CAMPUSHUB_WECHAT_API_V3_KEY:}
+      notify-url: ${CAMPUSHUB_WECHAT_NOTIFY_URL:}
+    alipay:
+      enabled: ${CAMPUSHUB_ALIPAY_ENABLED:false}
+      sandbox: ${CAMPUSHUB_ALIPAY_SANDBOX:false}
+      app-id: ${CAMPUSHUB_ALIPAY_APP_ID:}
+      seller-id: ${CAMPUSHUB_ALIPAY_SELLER_ID:}
+      private-key-path: ${CAMPUSHUB_ALIPAY_PRIVATE_KEY_PATH:}
+      public-key-path: ${CAMPUSHUB_ALIPAY_PUBLIC_KEY_PATH:}
+      notify-url: ${CAMPUSHUB_ALIPAY_NOTIFY_URL:}
 
 # 日志级别控制
 logging:

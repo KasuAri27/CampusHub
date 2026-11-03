@@ -13,24 +13,29 @@ import java.util.List;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/**
+ * 需求超期自动清理调度器。
+ * 定时扫描超过截止时间且仍无人接单的待接单需求，通过乐观条件更新自动将其取消并通知发布者。
+ */
 public class TaskAutoCancelScheduler {
 
     private final TaskRepository taskRepository;
     private final NotificationService notificationService;
+    private final java.time.Clock clock;
 
     // 每隔 60 秒检查一次过期任务
     @Scheduled(fixedRate = 60000)
     @Transactional
     public void autoCancelExpiredTasks() {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         // 查找所有状态为 published 且超时未接单的需求
         List<Task> expiredTasks = taskRepository.findExpiredTasks(Task.TaskStatus.published, now);
 
         if (!expiredTasks.isEmpty()) {
             for (Task task : expiredTasks) {
                 // 1. 设置状态为已取消
-                task.setStatus(Task.TaskStatus.cancelled);
-                taskRepository.save(task);
+                // 使用状态条件更新，扫描后被人接单的任务不能再被旧快照取消。
+                if (taskRepository.updateStatusIfCurrent(task.getId(), Task.TaskStatus.published, Task.TaskStatus.cancelled) != 1) continue;
 
                 // 2. 给需求发布方发送系统通知
                 String title = "需求已过期自动取消";

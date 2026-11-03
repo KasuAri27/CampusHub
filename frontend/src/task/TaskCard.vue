@@ -11,13 +11,13 @@
           <span class="status-dot"></span>
           {{ statusLabel }}
         </span>
-        <span class="reward" v-if="task.taskType === 'FLEA' && (task.tradeMode || 'SELL') === 'BUY'">
+        <span class="reward" v-if="task.taskType !== 'TEAM' && task.taskType === 'FLEA' && (task.tradeMode || 'SELL') === 'BUY'">
           收物
         </span>
-        <span class="reward" v-else-if="task.reward">
+        <span class="reward" v-else-if="task.taskType !== 'TEAM' && task.reward">
           <span class="currency">&#xFFE5;</span>{{ task.reward }}
         </span>
-        <span class="reward free" v-else>免费互助</span>
+        <span class="reward free" v-else-if="task.taskType !== 'TEAM'">免费互助</span>
       </div>
       
       <!-- 标题 -->

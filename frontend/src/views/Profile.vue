@@ -156,8 +156,7 @@ const passwordForm = reactive({
 })
 
 const uploadHeaders = computed(() => ({
-  Authorization: userStore.token ? `Bearer ${userStore.token}` : '',
-  'X-User-Id': userStore.userId || ''
+  Authorization: userStore.token ? `Bearer ${userStore.token}` : ''
 }))
 
 const roleName = computed(() => {

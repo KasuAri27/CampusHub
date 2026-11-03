@@ -17,6 +17,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/v1/conversations")
 @RequiredArgsConstructor
+/** 聊天与会话接口控制器，提供会话列表检索、历史消息分页、已读标记、会话保留与解散及 HTTP 消息发送通道。 */
 public class ConversationController {
 
     private final ConversationService convService;
@@ -41,7 +42,7 @@ public class ConversationController {
     public ApiResponse<PageResult<?>> getMessages(@PathVariable Long id,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "30") int size) {
-        return ApiResponse.success(msgService.getHistory(id, page, size));
+        return ApiResponse.success(msgService.getHistory(id, page, size, UserContext.getCurrentUserId()));
     }
 
     @PutMapping("/{id}/read")

@@ -12,15 +12,26 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+/** 站内通知服务，同步写入独立通知流水并投递至专属系统聊天会话。 */
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final ConversationService convService;
     private final MessageService msgService;
 
+    /**
+     * 创建并分发系统通知：
+     * 同一事务内双写通知表与系统通知聊天会话，确保历史站内信与实时聊天入口均可感知。
+     */
     @Transactional
     public void createNotification(Long receiverId, String title, String content, String type) {
-        // 通过聊天系统发送系统通知
+        // 通知表作为统一查询来源，同时在系统会话展示；两个写入处于同一事务，避免旧入口漏通知。
+        Notification notification = new Notification();
+        notification.setReceiverId(receiverId);
+        notification.setTitle(title);
+        notification.setContent(content);
+        notification.setType(type);
+        notificationRepository.save(notification);
         Conversation conv = convService.getOrCreateSystemNotify(receiverId);
         String fullContent = "【" + title + "】" + content;
         msgService.saveAndGet(conv.getId(), 0L, fullContent, "SYSTEM");

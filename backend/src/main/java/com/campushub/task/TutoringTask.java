@@ -27,6 +27,10 @@ public class TutoringTask extends Task {
     @Column(name = "price_per_hour", nullable = false, precision = 10, scale = 2)
     private BigDecimal pricePerHour;
 
+    /** 发布时约定的小时数；总价在后端计算并由接单订单冻结。 */
+    @Column(name = "duration_hours", precision = 6, scale = 2)
+    private BigDecimal durationHours;
+
     /** 辅导地点 */
     @Column(name = "tutoring_location", nullable = false, length = 100)
     private String tutoringLocation;

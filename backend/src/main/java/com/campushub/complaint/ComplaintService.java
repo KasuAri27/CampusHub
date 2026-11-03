@@ -3,6 +3,7 @@ package com.campushub.complaint;
 import com.campushub.common.BusinessException;
 import com.campushub.notification.NotificationService;
 import com.campushub.order.OrderRepository;
+import com.campushub.order.OrderLifecycleService;
 import com.campushub.user.User;
 import com.campushub.user.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -14,18 +15,32 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+/** 订单投诉与仲裁核心服务，处理履约争议提交、自动挂起判定及管理员预警通知。 */
 public class ComplaintService {
 
     private final ComplaintRepository complaintRepository;
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final OrderLifecycleService lifecycle;
+    private final com.campushub.order.OrderLocks locks;
 
+    /**
+     * 提交投诉并裁定是否挂起订单：
+     * 仅当需求验收方因服务未完成或质量不符投诉时，才将订单标记为争议中以暂停自动验收倒计时；
+     * 服务提供方发起的催款投诉不能反向暂停追缴逾期。
+     */
     @Transactional
     public void submitComplaint(Long complainantId, ComplaintRequest req) {
-        if (!orderRepository.existsById(req.getOrderId())) {
-            throw new BusinessException(404, "订单不存在");
-        }
+        var order = locks.lock(req.getOrderId());
+        boolean requester = order.getRequester().getId().equals(complainantId);
+        boolean provider = order.getProvider().getId().equals(complainantId);
+        if (!requester && !provider) throw new BusinessException(403, "只有订单参与者可以投诉");
+        Long targetId = requester ? order.getProvider().getId() : order.getRequester().getId();
+        if (req.getTargetId() != null && !req.getTargetId().equals(targetId)) throw new BusinessException(400, "被投诉人须为订单另一方");
+        if (req.getReason() == null || req.getReason().isBlank() || req.getReason().length() > 100
+                || req.getDescription() != null && req.getDescription().length() > 500)
+            throw new BusinessException(400, "请填写合法投诉理由和描述");
         if (complaintRepository.existsByOrderIdAndComplainantId(req.getOrderId(), complainantId)) {
             throw new BusinessException(409, "您已对该订单提交过投诉");
         }
@@ -33,12 +48,16 @@ public class ComplaintService {
         Complaint complaint = Complaint.builder()
                 .complainantId(complainantId)
                 .orderId(req.getOrderId())
-                .targetId(req.getTargetId())
+                .targetId(targetId)
                 .reason(req.getReason())
                 .description(req.getDescription())
                 .imageUrl(req.getImageUrl())
                 .build();
         complaintRepository.save(complaint);
+        // 需求验收方提出履约/质量正式异议才暂停计时；服务方催款投诉不能反而暂停追缴。
+        if (java.util.Objects.equals(order.getPayerId(), complainantId)
+                && ("服务未完成".equals(req.getReason()) || "质量不符".equals(req.getReason())))
+            lifecycle.openDispute(order.getId(), complainantId, req.getDescription() == null ? req.getReason() : req.getDescription());
 
         // 通知所有管理员
         User complainant = userRepository.findById(complainantId).orElse(null);
@@ -61,12 +80,24 @@ public class ComplaintService {
         }
     }
 
-    public List<Complaint> getByOrderId(Long orderId) {
+    @Transactional(readOnly = true)
+    public List<Complaint> getByOrderId(Long orderId, Long actorId) {
+        requireAccess(orderId, actorId);
         return complaintRepository.findByOrderId(orderId);
     }
 
-    public Complaint getById(Long id) {
-        return complaintRepository.findById(id)
+    @Transactional(readOnly = true)
+    public Complaint getById(Long id, Long actorId) {
+        Complaint complaint = complaintRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "投诉不存在"));
+        requireAccess(complaint.getOrderId(), actorId);
+        return complaint;
+    }
+    /** 权限隔离：仅订单当事人（需求方/服务方）或具备正常权限的系统管理员可以查阅投诉证据。 */
+    private void requireAccess(Long orderId, Long actorId) {
+        var order = orderRepository.findById(orderId).orElseThrow(() -> new BusinessException(404, "订单不存在"));
+        boolean participant = order.getRequester().getId().equals(actorId) || order.getProvider().getId().equals(actorId);
+        boolean administrator = userRepository.findById(actorId).filter(u -> u.getRole() == User.Role.admin && u.getStatus() == 1).isPresent();
+        if (!participant && !administrator) throw new BusinessException(403, "无权读取此订单的投诉");
     }
 }

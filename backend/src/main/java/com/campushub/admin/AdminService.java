@@ -55,11 +55,13 @@ public class AdminService {
     private final ConversationRepository conversationRepository;
     private final ConversationMemberRepository conversationMemberRepository;
     private final MessageRepository messageRepository;
+    private final com.campushub.notification.NotificationService notificationService;
 
+    /** 校验当前操作人是否具备已激活的管理员权限；非管理员或已冻结账号直接拒绝访问。 */
     private User requireAdmin(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
-        if (user.getRole() != User.Role.admin) {
+        if (user.getRole() != User.Role.admin || user.getStatus() != 1) {
             throw new BusinessException(403, "无管理员权限");
         }
         return user;
@@ -156,6 +158,10 @@ public class AdminService {
         userRepository.save(target);
     }
 
+    /**
+     * 管理员调整信用分：受[0, 100]区间限制，达到上限禁止上调；
+     * 降至70分以下时触发权限限制警告，通知用户发单受限。
+     */
     @Transactional
     public void adjustCredit(Long adminUserId, Long targetUserId, int delta) {
         requireAdmin(adminUserId);
@@ -179,7 +185,7 @@ public class AdminService {
         n.setTitle(title);
         n.setContent(content);
         n.setType("CREDIT_CHANGE");
-        notificationRepository.save(n);
+        notificationService.createNotification(n.getReceiverId(), n.getTitle(), n.getContent(), n.getType());
 
         if (newScore < 70) {
             Notification warn = new Notification();
@@ -187,7 +193,7 @@ public class AdminService {
             warn.setTitle("信用分不足提醒");
             warn.setContent("您的信用分已降至 " + newScore + "（低于70），发布权限已被限制。如需申诉，请联系管理员 " + adminName + "。");
             warn.setType("CREDIT_WARNING");
-            notificationRepository.save(warn);
+            notificationService.createNotification(warn.getReceiverId(), warn.getTitle(), warn.getContent(), warn.getType());
         }
     }
 
@@ -220,12 +226,18 @@ public class AdminService {
         return new PageResult<>(items, taskPage.getTotalElements(), page, size);
     }
 
+    /**
+     * 物理删除需求前，强制校验是否有非零金额订单或已产生付款凭证的订单；
+     * 存在资金流转的订单必须保留财务与争议审计记录，不可物理擦除。
+     */
     @Transactional
     public void deleteTask(Long adminUserId, Long taskId) {
         requireAdmin(adminUserId);
         if (!taskRepository.existsById(taskId)) {
             throw new BusinessException(404, "需求不存在");
         }
+        if (orderRepository.findByTaskId(taskId).stream().anyMatch(o -> o.getAmountDue() != null))
+            throw new BusinessException(409, "任务已有新业务订单，须保留财务和争议审计记录，不能物理删除");
         // 管理员删除需求时级联删除评价 → 订单 → 需求
         orderRepository.findByTaskId(taskId).forEach(o -> {
             reviewRepository.deleteByOrder_Id(o.getId());
@@ -234,6 +246,7 @@ public class AdminService {
         taskRepository.deleteById(taskId);
     }
 
+    /** 审核通过需求；若为组队任务（TeamingTask），自动联动聊天模块创建专属协作群。 */
     @Transactional
     public TaskManagementDTO approveTask(Long adminUserId, Long taskId) {
         requireAdmin(adminUserId);
@@ -283,7 +296,7 @@ public class AdminService {
         n.setTitle(title);
         n.setContent(content);
         n.setType("TASK_REVIEW_RESULT");
-        notificationRepository.save(n);
+        notificationService.createNotification(n.getReceiverId(), n.getTitle(), n.getContent(), n.getType());
     }
 
     private void notifyRequester(Task task, String action) {
@@ -359,6 +372,7 @@ public class AdminService {
         return new PageResult<>(items, nPage.getTotalElements(), page, size);
     }
 
+    /** 系统通知分发：根据 receiverId 判定是精准下发给特定用户还是批量下发全员。 */
     @Transactional
     public void sendNotification(Long adminUserId, SystemNotificationRequest req) {
         requireAdmin(adminUserId);
@@ -368,7 +382,7 @@ public class AdminService {
             n.setTitle(req.getTitle());
             n.setContent(req.getContent());
             n.setType(req.getType() != null ? req.getType() : "SYSTEM");
-            notificationRepository.save(n);
+            notificationService.createNotification(n.getReceiverId(), n.getTitle(), n.getContent(), n.getType());
         } else {
             List<User> allUsers = userRepository.findAll();
             List<Notification> batch = allUsers.stream().map(u -> {
@@ -379,7 +393,7 @@ public class AdminService {
                 n.setType(req.getType() != null ? req.getType() : "SYSTEM");
                 return n;
             }).collect(Collectors.toList());
-            notificationRepository.saveAll(batch);
+            batch.forEach(n -> notificationService.createNotification(n.getReceiverId(), n.getTitle(), n.getContent(), n.getType()));
         }
     }
 
@@ -392,6 +406,7 @@ public class AdminService {
         requireAdmin(adminUserId);
 
         List<Conversation> all;
+        // 未限定类型时，合并组队群聊与任务私聊两大类进行联合监管排序
         if (convType != null && !convType.isBlank()) {
             all = conversationRepository.findByConvType(convType);
         } else {
@@ -518,6 +533,7 @@ public class AdminService {
                 .createTime(u.getCreateTime()).build();
     }
 
+    /** 将任务实体转换为管理端视图，根据多态类型推断 taskType，并关联查出首笔订单的履约人与评价内容。 */
     private TaskManagementDTO toTaskDTO(Task t) {
         String providerSid = null;
         String comment = null;
@@ -538,6 +554,7 @@ public class AdminService {
         }
 
         return TaskManagementDTO.builder()
+                .taskType(t instanceof TeamingTask ? "TEAM" : t instanceof com.campushub.task.SecondHandTask ? "FLEA" : "SERVICE")
                 .id(t.getId()).title(t.getTitle()).description(t.getDescription())
                 .categoryName(t.getCategory() != null ? t.getCategory().getName() : "")
                 .reward(t.getReward())

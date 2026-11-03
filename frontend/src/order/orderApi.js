@@ -3,10 +3,13 @@ import http from '@/common/http'
 /**
  * 订单模块 API 封装 — 对应后端 OrderController
  *
- * 注意：OrderController 使用 @RequestHeader("X-User-Id")，
- * http.js 请求拦截器已全局注入该 Header（见更新后的 http.js）。
+ * 注意：身份由 JWT 统一传递（http.js 拦截器注入 Authorization），后端从 SecurityContext 读取。
  */
 export default {
+    /** 同时返回作为需求方和服务方参与的订单，避免旧“我的接单”遗漏付款入口。 */
+    mine() { return http.get('/orders/mine') },
+    detail(orderId) { return http.get(`/orders/${orderId}`) },
+    submitCompletion(orderId) { return http.post(`/orders/${orderId}/submit-completion`) },
     getByTaskId(taskId) {
         return http.get(`/orders/task/${taskId}`)
     },

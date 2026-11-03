@@ -9,8 +9,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+/**
+ * CampusHub 校园互助服务平台主启动类。
+ * 负责 Spring Boot 容器初始化、各领域组件扫描与控制台端口指引输出。
+ */
 @SpringBootApplication
-@EnableScheduling
 public class CampusHubApplication {
 
     private static final Logger log = LoggerFactory.getLogger(CampusHubApplication.class);

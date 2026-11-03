@@ -26,6 +26,13 @@ import java.util.List;
 public interface TaskRepository extends JpaRepository<Task, Long>,
         JpaSpecificationExecutor<Task> {
 
+    /** 对任务加行锁后再检查接单状态，阻止两个并发请求同时接走普通任务。 */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from Task t where t.id = :id")
+    Optional<Task> findLockedById(@Param("id") Long id);
+    @Query("select count(o) from TaskOrder o where o.task.id = :taskId")
+    long countOrders(@Param("taskId") Long taskId);
+
     /**
      * 按 ID 查询需求并立即加载关联的发布者和分类信息.
      * <p>

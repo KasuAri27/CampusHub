@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import http from '@/common/http'
 import { ElMessage } from 'element-plus'
 
+/** 站内通知状态管理 Store，维护未读消息角标计数、分页通知拉取与单条/一键全量已读操作。 */
 export const useNotificationStore = defineStore('notification', () => {
   const notifications = ref([])
   const unreadCount = ref(0)

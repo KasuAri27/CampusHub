@@ -18,6 +18,10 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 用户与认证领域服务。
+ * 负责手机号 AES 加解密落库、BCrypt 密码校验、Spring Security 登录集成及信息脱敏展示。
+ */
 public class UserService implements UserDetailsService {
 
     private final UserRepository userRepository;
@@ -28,7 +32,7 @@ public class UserService implements UserDetailsService {
 
     @Transactional
     public LoginResponse register(RegisterRequest request) {
-        verificationCodeService.verifyCode(request.getPhone(), request.getSmsCode(), "REGISTER");
+        verificationCodeService.verifyCode(request.getPhone(), request.getSmsCode(), "REGISTER", request.getStudentId());
 
         if (userRepository.existsByStudentId(request.getStudentId())) {
             throw new BusinessException("学号已注册");
@@ -67,16 +71,12 @@ public class UserService implements UserDetailsService {
         }
 
         User user = userOpt.orElseThrow(() -> new BusinessException("账号不存在"));
-        if (user.getStatus() != 1) {
-            throw new BusinessException("账号已被禁用");
-        }
         if (!bcryptUtil.matches(request.getPassword(), user.getPassword())) {
             throw new BusinessException("密码错误");
         }
 
         String token = jwtUtil.generateToken(user.getStudentId(), user.getId());
-        return new LoginResponse(token, user.getId(), user.getStudentId(), user.getNickname(),
-                user.getRole() != null ? user.getRole().name() : null);
+        return responseFor(user, token);
     }
 
     @Transactional
@@ -85,31 +85,15 @@ public class UserService implements UserDetailsService {
 
         String encryptedPhone = aesUtil.encrypt(request.getPhone());
         Optional<User> userOpt = userRepository.findByPhone(encryptedPhone);
-        User user;
-        if (userOpt.isEmpty()) {
-            // 自动注册新用户（无学号，邮箱暂用手机号占位）
-            user = new User();
-            user.setName("User" + request.getPhone().substring(7));
-            user.setStudentId("");
-            user.setEmail(request.getPhone() + "@smail.nju.edu.cn"); // 占位，后续可更新
-            user.setPhone(encryptedPhone);
-            user.setPassword(bcryptUtil.encode(""));
-            user.setRole(User.Role.requester);
-            user.setNickname("User" + request.getPhone().substring(7));
-            user.setCreditScore(100);
-            user.setStatus(1);
-            userRepository.save(user);
-        } else {
-            user = userOpt.get();
-            if (user.getStatus() != 1) {
-                throw new BusinessException("账号已被禁用");
-            }
-        }
+        // 手机验证码登录只用于已有校内账号，清理无法产生有效JWT的空学号自动注册分支。
+        User user = userOpt.orElseThrow(() -> new BusinessException(404, "账号未注册，请先完成校内注册"));
 
         String token = jwtUtil.generateToken(user.getStudentId(), user.getId());
         LoginResponse response = new LoginResponse(token, user.getId(), user.getStudentId(),
                 user.getNickname(), user.getRole() != null ? user.getRole().name() : null);
         response.setNeedBindStudentId(user.getStudentId().isEmpty());
+        response.setRestricted(user.getStatus() != 1);
+        response.setCreditScore(user.getCreditScore());
         return response;
     }
 
@@ -130,7 +114,8 @@ public class UserService implements UserDetailsService {
                 user.getNickname(),
                 user.getAvatar(),
                 user.getCreditScore(),
-                user.getRole() != null ? user.getRole().name() : null
+                user.getRole() != null ? user.getRole().name() : null,
+                user.getStatus() != 1
         );
     }
 
@@ -166,8 +151,11 @@ public class UserService implements UserDetailsService {
     public void updateUserRole(Long userId, String roleName) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
-        User.Role role = User.Role.valueOf(roleName);
-        user.setRole(role);
+        // 白名单：只允许在业务角色之间切换，管理员身份不可通过该接口获得
+        if (!"requester".equals(roleName) && !"provider".equals(roleName)) {
+            throw new BusinessException(403, "仅支持切换为需求方或服务方");
+        }
+        user.setRole(User.Role.valueOf(roleName));
         userRepository.save(user);
     }
 
@@ -189,7 +177,16 @@ public class UserService implements UserDetailsService {
         return new org.springframework.security.core.userdetails.User(
                 user.getStudentId(),
                 user.getPassword(),
-                Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
+                Collections.singletonList(new SimpleGrantedAuthority(user.getStatus() == 1 ? "ROLE_USER" : "ROLE_RESTRICTED"))
         );
+    }
+
+    /** 封禁用户可验证身份后进入受限账户；具体允许的还款/申诉路径由过滤链控制。 */
+    private LoginResponse responseFor(User user, String token) {
+        LoginResponse response = new LoginResponse(token, user.getId(), user.getStudentId(), user.getNickname(),
+                user.getRole() == null ? null : user.getRole().name());
+        response.setRestricted(user.getStatus() != 1);
+        response.setCreditScore(user.getCreditScore());
+        return response;
     }
 }

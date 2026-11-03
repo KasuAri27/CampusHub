@@ -14,6 +14,8 @@ public class LoginResponse {
     private String nickname;
     private String role;
     private boolean needBindStudentId = false;
+    private boolean restricted;
+    private Integer creditScore;
 
     public LoginResponse(String token, Long userId, String studentId, String nickname, String role) {
         this.token = token;
