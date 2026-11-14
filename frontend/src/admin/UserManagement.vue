@@ -8,8 +8,7 @@
       </el-col>
       <el-col :span="4">
         <el-select v-model="filters.role" placeholder="角色" clearable @change="search">
-          <el-option label="需求方" value="requester" />
-          <el-option label="服务方" value="provider" />
+          <el-option label="普通用户" value="user" />
           <el-option label="管理员" value="admin" />
         </el-select>
       </el-col>
@@ -25,7 +24,7 @@
       <el-table-column prop="phoneMasked" label="手机号" width="130" />
       <el-table-column prop="role" label="角色" width="80">
         <template #default="{ row }">
-          <el-tag :type="row.role === 'admin' ? 'danger' : row.role === 'requester' ? 'primary' : 'warning'" size="small">
+          <el-tag :type="row.role === 'admin' ? 'danger' : 'primary'" size="small">
             {{ roleLabel(row.role) }}
           </el-tag>
         </template>
@@ -104,9 +103,9 @@ const creditDialog = reactive({
   amount: 1
 })
 
+/** 角色只分普通用户与管理员（原需求方/服务方已合并为普通用户）。 */
 function roleLabel(r) {
-  if (r === 'requester') return '需求方'
-  if (r === 'provider') return '服务方'
+  if (r === 'user') return '普通用户'
   if (r === 'admin') return '管理员'
   return r
 }
