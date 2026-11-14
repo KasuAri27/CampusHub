@@ -24,7 +24,8 @@
             需求广场
           </router-link>
 
-          <router-link v-if="userStore.isRequester && !userStore.restricted" to="/tasks/publish" class="nav-item" active-class="active">
+          <!-- 角色已合并：普通用户都能发布需求，管理员只做审核不发布 -->
+          <router-link v-if="userStore.isUser && !userStore.restricted" to="/tasks/publish" class="nav-item" active-class="active">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/>
               <line x1="12" y1="8" x2="12" y2="16"/>
@@ -60,20 +61,6 @@
         </nav>
 
         <div class="nav-actions">
-          <button
-              v-if="userStore.isLoggedIn && !userStore.isAdmin && !userStore.restricted"
-              class="role-switch-btn"
-              @click="userStore.switchRole()"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M16 3l4 4-4 4"/>
-              <path d="M20 7H4"/>
-              <path d="M8 21l-4-4 4-4"/>
-              <path d="M4 17h16"/>
-            </svg>
-            <span>切换为{{ userStore.isRequester ? '服务方' : '需求方' }}</span>
-          </button>
-
           <span v-if="userStore.isLoggedIn && userStore.isAdmin" class="admin-badge">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
@@ -324,32 +311,6 @@ body {
   gap: 12px;
 }
 
-.role-switch-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-full);
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: var(--transition-base);
-}
-
-.role-switch-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-  background: rgba(16, 185, 129, 0.04);
-}
-
-.role-switch-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
 .admin-badge {
   display: flex;
   align-items: center;
@@ -597,6 +558,5 @@ body {
   .nav-links { display: none; }
   .logo-text { display: none; }
   .main-content { padding-left: 16px; padding-right: 16px; }
-  .role-switch-btn span { display: none; }
 }
 </style>
