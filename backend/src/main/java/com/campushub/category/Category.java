@@ -56,7 +56,7 @@ public class Category {
     private Integer sortOrder = 0;
 
     /** 记录创建时间，由 JPA 回调自动填充 */
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column(name = "create_time", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     /**

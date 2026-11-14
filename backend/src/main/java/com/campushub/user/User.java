@@ -46,7 +46,11 @@ public class User {
     @Column(length = 20)
     private String name;
 
-    /** 用户昵称 */
+    /**
+     * 用户昵称：最长 10 个汉字或 20 个英文字符（汉字计 2，英文数字计 1）。
+     * 列宽 20 只限制字符数，按显示宽度的限制由数据库约束 chk_users_nickname_length 兜底。
+     */
+    @Column(length = 20)
     private String nickname;
 
     /** 学校邮箱，全局唯一，用于登录和身份验证 */
