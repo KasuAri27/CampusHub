@@ -102,6 +102,22 @@ class OrderServiceTest {
     }
 
     @Test
+    void acceptTaskRejectsAdministrator() {
+        User requester = user(1L, User.Role.user);
+        User admin = user(3L, User.Role.admin);
+        Task task = task(10L, requester, TaskStatus.published, new BigDecimal("5.00"));
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
+        when(userRepository.findById(3L)).thenReturn(Optional.of(admin));
+
+        assertThatThrownBy(() -> orderService.acceptTask(10L, 3L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("管理员不能接单");
+
+        verify(orderRepository, never()).save(any());
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.published);
+    }
+
+    @Test
     void acceptTaskRejectsLowCreditBeforeCreatingOrder() {
         User requester = user(1L, User.Role.user), provider = user(2L, User.Role.user);
         provider.setCreditScore(69);

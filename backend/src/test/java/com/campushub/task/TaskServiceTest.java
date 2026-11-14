@@ -75,12 +75,12 @@ class TaskServiceTest {
     }
 
     @Test
-    void createTaskRejectsProviderRole() {
-        User provider = user(2L, Role.admin);
-        when(userRepository.findById(2L)).thenReturn(Optional.of(provider));
+    void createTaskRejectsAdministrator() {
+        User admin = user(2L, Role.admin);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(admin));
         assertThatThrownBy(() -> taskService.createTask(createRequest(), 2L))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("仅需求方可以发布需求");
+                .hasMessage("管理员不能发布需求");
 
         verify(categoryRepository, never()).findById(any());
         verify(taskRepository, never()).save(any());

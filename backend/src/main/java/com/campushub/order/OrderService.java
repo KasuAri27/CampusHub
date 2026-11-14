@@ -74,6 +74,8 @@ public class OrderService {
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
 
         if (provider.getStatus() != 1) throw new BusinessException(403, "账号已被禁用");
+        // 管理员负责监管与争议裁决，不能作为交易一方参与订单。
+        if (provider.getRole() == User.Role.admin) throw new BusinessException(403, "管理员不能接单");
         if (provider.getCreditScore() < 70) {
             throw new BusinessException(403, "您的信用分低于70分，暂无接单权限！");
         }

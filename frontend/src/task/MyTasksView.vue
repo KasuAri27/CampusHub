@@ -3,43 +3,19 @@
     <div class="page-header">
       <div class="header-content">
         <h1 class="page-title">我的需求</h1>
-        <p class="page-subtitle">管理你发布和接收的所有需求</p>
+        <p class="page-subtitle">我发布的和我接单的需求都在这里</p>
       </div>
 
       <div class="custom-tabs">
         <button
-          v-if="userStore.isRequester"
+          v-for="item in tabs"
+          :key="item.key"
           class="tab-btn"
-          :class="{ active: tab === 'myPublished' }"
-          @click="switchTab('myPublished')"
+          :class="{ active: tab === item.key }"
+          @click="tab = item.key"
         >
-          我发布的
-          <span class="tab-count" v-if="published.length">{{ published.length }}</span>
-        </button>
-        <button
-          v-if="userStore.isProvider"
-          class="tab-btn"
-          :class="{ active: tab === 'myAccepted' }"
-          @click="switchTab('myAccepted')"
-        >
-          我接单的
-          <span class="tab-count" v-if="myAccepted.length">{{ myAccepted.length }}</span>
-        </button>
-        <button
-          class="tab-btn"
-          :class="{ active: tab === 'accepted' }"
-          @click="switchTab('accepted')"
-        >
-          已接单的
-          <span class="tab-count" v-if="acceptedCount">{{ acceptedCount }}</span>
-        </button>
-        <button
-          class="tab-btn"
-          :class="{ active: tab === 'completed' }"
-          @click="switchTab('completed')"
-        >
-          已完成的
-          <span class="tab-count" v-if="completed.length">{{ completed.length }}</span>
+          {{ item.label }}
+          <span class="tab-count" v-if="lists[item.key].length">{{ lists[item.key].length }}</span>
         </button>
       </div>
     </div>
@@ -51,104 +27,109 @@
 
     <div v-else-if="filtered.length === 0" class="empty-state">
       <div class="empty-icon">☆</div>
-      <h3>{{ emptyDesc }}</h3>
-      <p>{{ emptyHint }}</p>
-      <router-link v-if="tab === 'myPublished'" to="/tasks/publish" class="empty-action">
+      <h3>{{ emptyText[tab][0] }}</h3>
+      <p>{{ emptyText[tab][1] }}</p>
+      <router-link v-if="tab === 'published' && !userStore.isAdmin" to="/tasks/publish" class="empty-action">
         去发布一个需求
       </router-link>
     </div>
 
     <TransitionGroup v-else name="card-list" tag="div" class="task-grid">
-      <TaskCard v-for="(t, index) in filtered" :key="t.id" :task="t" :style="{ '--delay': index * 0.05 + 's' }" />
+      <TaskCard v-for="(t, index) in filtered" :key="t.cardKey" :task="t" :style="{ '--delay': index * 0.05 + 's' }" />
     </TransitionGroup>
   </div>
 </template>
 
 <script setup>
+/**
+ * 我的需求：同一账号既能发布也能接单，这里把两边合在一起统计。
+ * 数据来源：
+ *   - 我发布的：GET /tasks/mine/published（全部状态）
+ *   - 我接单的：GET /orders/my-accepted（按真实订单，不再从广场列表推断）
+ * 接单记录展示时以“我这张订单”的状态为准：组队需求未满员时需求仍是待接单，
+ * 但对已加入的成员来说是进行中。
+ */
 import { ref, computed, onMounted } from 'vue'
 import taskApi from '@/task/taskApi'
+import orderApi from '@/order/orderApi'
 import TaskCard from '@/task/TaskCard.vue'
 import { useUserStore } from '@/user/userStore'
 
 const userStore = useUserStore()
-const tab = ref(userStore.isRequester ? 'myPublished' : 'myAccepted')
+const tab = ref('published')
 const loading = ref(false)
-const publicTasks = ref([])
 const publishedTasks = ref([])
+const acceptedTasks = ref([])
 
-function sameUserId(a, b) {
-  if (a === null || a === undefined || b === null || b === undefined) return false
-  return Number(a) === Number(b)
+const tabs = [
+  { key: 'published', label: '我发布的' },
+  { key: 'accepted', label: '我接单的' },
+  { key: 'waiting', label: '待接单' },
+  { key: 'inProgress', label: '进行中' },
+  { key: 'completed', label: '已完成' }
+]
+
+const emptyText = {
+  published: ['你还没有发布过需求', '先去发布一个需求吧，方便同学帮助你完成任务。'],
+  accepted: ['你还没有接过单', '可以去需求广场看看有没有合适的任务。'],
+  waiting: ['没有等待接单的需求', '你发布且已通过审核、还没人接的需求会显示在这里。'],
+  inProgress: ['没有进行中的需求', '你发布的或接下的、正在进行的需求会显示在这里。'],
+  completed: ['暂无已完成的需求', '你发布的或接下的已完成需求都会显示在这里。']
 }
 
-function switchTab(nextTab) {
-  tab.value = nextTab
-  fetchData()
+/** 订单履约状态折算成卡片状态：待验收仍属于进行中。 */
+const ORDER_TO_CARD_STATUS = {
+  in_progress: 'in_progress',
+  awaiting_acceptance: 'in_progress',
+  completed: 'completed',
+  cancelled: 'cancelled'
 }
 
-const published = computed(() => {
-  if (userStore.isRequester) return publishedTasks.value
-  return publicTasks.value.filter(t => sameUserId(t.publisher?.userId, userStore.userId))
-})
-
-const accepted = computed(() => {
-  if (userStore.isRequester) return published.value.filter(t => t.status === 'in_progress')
-  return publicTasks.value.filter(t => t.status === 'in_progress' && !sameUserId(t.publisher?.userId, userStore.userId))
-})
-
-const myAccepted = computed(() => {
-  return publicTasks.value.filter(t => t.status === 'in_progress' && !sameUserId(t.publisher?.userId, userStore.userId))
-})
-
-const completed = computed(() => {
-  if (userStore.isRequester) return published.value.filter(t => t.status === 'completed')
-  return publicTasks.value.filter(t => t.status === 'completed' && !sameUserId(t.publisher?.userId, userStore.userId))
-})
-
-const acceptedCount = computed(() => accepted.value.length)
-
-const filtered = computed(() => {
-  if (tab.value === 'myPublished') return published.value
-  if (tab.value === 'myAccepted') return myAccepted.value
-  if (tab.value === 'accepted') return accepted.value
-  return completed.value
-})
-
-const emptyDesc = computed(() => {
-  const map = {
-    myPublished: '你还没有发布过需求',
-    myAccepted: '你还没有接过单',
-    accepted: '暂无已接单的需求',
-    completed: '暂无已完成的需求'
+const lists = computed(() => {
+  const mine = publishedTasks.value
+  const taken = acceptedTasks.value
+  return {
+    published: mine,
+    accepted: taken,
+    // 未被接单：已过审核、正在广场等人接的需求（待审核的只在“我发布的”里出现）
+    waiting: mine.filter(t => t.status === 'published'),
+    inProgress: [...mine.filter(t => t.status === 'in_progress'), ...taken.filter(t => t.status === 'in_progress')],
+    completed: [...mine.filter(t => t.status === 'completed'), ...taken.filter(t => t.status === 'completed')]
   }
-  return map[tab.value] || '暂无数据'
 })
 
-const emptyHint = computed(() => {
-  const map = {
-    myPublished: '先去发布一个需求吧，方便同学帮助你完成任务。',
-    myAccepted: '可以去需求广场看看有没有合适的任务。',
-    accepted: '这里会显示当前已接单的需求。',
-    completed: '完成后的需求会显示在这里。'
-  }
-  return map[tab.value] || ''
-})
+const filtered = computed(() => lists.value[tab.value])
+
+/** 把我接的订单转成卡片数据：卡片需要发布者、分类等需求信息，按需求ID补查详情。 */
+async function loadAcceptedTasks() {
+  const res = await orderApi.myAccepted()
+  const orders = res.data?.data || []
+  const taskIds = [...new Set(orders.map(o => o.taskId))]
+  const details = await Promise.allSettled(taskIds.map(id => taskApi.getById(id)))
+  const taskById = new Map()
+  details.forEach((r, i) => {
+    if (r.status === 'fulfilled' && r.value.data?.data) taskById.set(taskIds[i], r.value.data.data)
+  })
+  return orders.map(o => ({
+    // 详情查询失败时用订单里的标题等信息兜底，保证列表不缺项
+    ...(taskById.get(o.taskId) || { id: o.taskId, title: o.title, description: o.description, taskType: o.taskType, reward: o.reward }),
+    status: ORDER_TO_CARD_STATUS[o.orderStatus] || o.orderStatus,
+    cardKey: `order-${o.orderId}`
+  }))
+}
 
 async function fetchData() {
   loading.value = true
   try {
-    const [listRes, mineRes] = await Promise.all([
-      taskApi.list({ page: 1, page_size: 200, sort: 'latest' }),
-      userStore.isRequester
-        ? taskApi.minePublished({ page: 1, page_size: 200 })
-        : Promise.resolve(null)
+    const [mineRes, taken] = await Promise.all([
+      taskApi.minePublished({ page: 1, page_size: 200 }),
+      loadAcceptedTasks()
     ])
-
-    publicTasks.value = listRes.data?.data?.items || []
-    publishedTasks.value = mineRes?.data?.data?.items || []
+    publishedTasks.value = (mineRes.data?.data?.items || []).map(t => ({ ...t, cardKey: `task-${t.id}` }))
+    acceptedTasks.value = taken
   } catch {
-    publicTasks.value = []
     publishedTasks.value = []
+    acceptedTasks.value = []
   } finally {
     loading.value = false
   }
