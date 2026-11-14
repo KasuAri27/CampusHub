@@ -56,7 +56,7 @@ public class TaskService {
             throw new BusinessException(403, "您的信用分低于70分，暂无发布需求权限！");
         }
 
-        if (requester.getRole() != Role.requester) {
+        if (requester.getRole() != Role.user) {
             throw new BusinessException(403, "仅需求方可以发布需求");
         }
 

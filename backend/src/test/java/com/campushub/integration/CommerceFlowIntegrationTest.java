@@ -82,7 +82,7 @@ class CommerceFlowIntegrationTest {
                 "messages", "conversation_members", "conversations", "orders", "t_task_running", "t_task_tutoring",
                 "t_task_flea", "t_task_team", "t_task_consulting", "tasks", "notifications", "verification_codes", "users", "categories"))
             jdbc.update("DELETE FROM " + table);
-        requester = seed("req", User.Role.requester); provider = seed("pro", User.Role.provider); admin = seed("adm", User.Role.admin);
+        requester = seed("req", User.Role.user); provider = seed("pro", User.Role.user); admin = seed("adm", User.Role.admin);
         category = categories.save(Category.builder().name("测试跑腿").hasReview(true).sortOrder(1).build());
         when(wechat.channel()).thenReturn(PaymentAttempt.Channel.WECHAT);
         when(wechat.enabled()).thenReturn(true);
@@ -238,10 +238,13 @@ class CommerceFlowIntegrationTest {
     }
     @Test void unauthenticatedOrdersAndSelfElevationAreRejected() throws Exception {
         mvc.perform(post("/v1/orders/accept").param("taskId", "1")).andExpect(status().isUnauthorized());
-        mvc.perform(put("/v1/auth/role").header("Authorization", token(requester)).param("role", "admin")).andExpect(status().isForbidden());
+        // 角色切换接口已随角色合并删除；即便有人仍调用旧地址，也不能借此把自己变成管理员。
+        mvc.perform(put("/v1/auth/role").header("Authorization", token(requester)).param("role", "admin"))
+                .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(200));
+        assertThat(users.findById(requester.getId()).orElseThrow().getRole()).isEqualTo(User.Role.user);
     }
     @Test void twoConcurrentProvidersProduceOnlyOneOrder() throws Exception {
-        long task = publish(validTask()); User other = seed("other", User.Role.provider);
+        long task = publish(validTask()); User other = seed("other", User.Role.user);
         CountDownLatch startTogether = new CountDownLatch(1);
         ExecutorService workers = Executors.newFixedThreadPool(2);
         try {
@@ -258,7 +261,7 @@ class CommerceFlowIntegrationTest {
     }
     @Test void teamRecruitmentRemainsFreeAndAcceptsMultipleMembers() throws Exception {
         ObjectNode body = validTask(); body.put("taskType", "TEAM"); body.put("maxMembers", 3); body.put("reward", 999);
-        long task = publish(body), first = accept(task, provider); User other = seed("other", User.Role.provider);
+        long task = publish(body), first = accept(task, provider); User other = seed("other", User.Role.user);
         long second = accept(task, other);
         assertThat(orders.findById(first).orElseThrow().getAmountDue()).isZero();
         assertThat(orders.findById(second).orElseThrow().getPaymentStatus()).isEqualTo(Order.PaymentStatus.not_required);

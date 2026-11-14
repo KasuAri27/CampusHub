@@ -159,11 +159,8 @@ const uploadHeaders = computed(() => ({
   Authorization: userStore.token ? `Bearer ${userStore.token}` : ''
 }))
 
-const roleName = computed(() => {
-  if (userStore.isAdmin) return '管理员'
-  if (userStore.isRequester) return '需求方'
-  return '服务方'
-})
+// 普通用户不再区分需求方/服务方，只区分普通用户与管理员。
+const roleName = computed(() => (userStore.isAdmin ? '管理员' : '普通用户'))
 
 const creditScoreType = computed(() => {
   const score = profileForm.creditScore || userStore.creditScore

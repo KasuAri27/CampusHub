@@ -44,13 +44,6 @@ public class UserController {
         return ApiResponse.success("更新成功", null);
     }
 
-    @PutMapping("/role")
-    public ApiResponse<Void> updateRole(@RequestParam String role) {
-        Long userId = UserContext.getCurrentUserId();
-        userService.updateUserRole(userId, role);
-        return ApiResponse.success("身份切换成功", null);
-    }
-
     @PutMapping("/password")
     public ApiResponse<Void> updatePassword(@Valid @RequestBody PasswordUpdateRequest request) {
         Long userId = UserContext.getCurrentUserId();

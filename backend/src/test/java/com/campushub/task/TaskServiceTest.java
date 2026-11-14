@@ -49,7 +49,7 @@ class TaskServiceTest {
 
     @Test
     void createTaskAllowsRequesterAndReturnsDto() {
-        User requester = user(1L, Role.requester);
+        User requester = user(1L, Role.user);
         Category category = category(3, true);
         TaskCreateRequest request = createRequest();
         when(userRepository.findById(1L)).thenReturn(Optional.of(requester));
@@ -76,7 +76,7 @@ class TaskServiceTest {
 
     @Test
     void createTaskRejectsProviderRole() {
-        User provider = user(2L, Role.provider);
+        User provider = user(2L, Role.admin);
         when(userRepository.findById(2L)).thenReturn(Optional.of(provider));
         assertThatThrownBy(() -> taskService.createTask(createRequest(), 2L))
                 .isInstanceOf(BusinessException.class)
@@ -88,7 +88,7 @@ class TaskServiceTest {
 
     @Test
     void deleteOwnTaskAllowsOnlyOwnerAndPublishedTask() {
-        User requester = user(1L, Role.requester);
+        User requester = user(1L, Role.user);
         Task task = task(10L, requester, TaskStatus.published, category(3, true));
         when(taskRepository.findById(10L)).thenReturn(Optional.of(task));
 
@@ -99,7 +99,7 @@ class TaskServiceTest {
 
     @Test
     void deleteOwnTaskRejectsNonOwner() {
-        User requester = user(1L, Role.requester);
+        User requester = user(1L, Role.user);
         Task task = task(10L, requester, TaskStatus.published, category(3, true));
         when(taskRepository.findById(10L)).thenReturn(Optional.of(task));
 
@@ -112,7 +112,7 @@ class TaskServiceTest {
 
     @Test
     void listTasksUsesOneBasedPaginationAndRewardSort() {
-        User requester = user(1L, Role.requester);
+        User requester = user(1L, Role.user);
         Task task = task(10L, requester, TaskStatus.published, category(3, true));
         when(taskRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenAnswer(invocation -> {

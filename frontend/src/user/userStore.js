@@ -3,7 +3,8 @@ import { ref, computed } from 'vue'
 
 /**
  * 用户会话与权限状态管理 Store。
- * 维护登录凭证 JWT、当前用户角色（发布者/接单人/管理员）、信用分及限制状态，并支持跨页面持久化。
+ * 维护登录凭证 JWT、当前用户角色（普通用户/管理员）、信用分及限制状态，并支持跨页面持久化。
+ * 普通用户不再区分需求方/服务方：同一账号既能发布也能接单，无需切换身份。
  */
 export const useUserStore = defineStore('user', () => {
   const API_ORIGIN = 'http://localhost:8080'
@@ -23,8 +24,16 @@ export const useUserStore = defineStore('user', () => {
     return `${API_ORIGIN}${url}`
   }
 
-  const isRequester = computed(() => role.value === 'requester')
-  const isProvider = computed(() => role.value === 'provider')
+  /**
+   * 统一角色取值：除管理员外一律视为普通用户 user。
+   * 角色合并前登录的浏览器里可能还缓存着 requester/provider，恢复会话时同样按普通用户处理。
+   */
+  function normalizeRole(value) {
+    if (!value) return ''
+    return value === 'admin' ? 'admin' : 'user'
+  }
+
+  const isUser = computed(() => role.value === 'user')
   const isAdmin = computed(() => role.value === 'admin')
   const isLoggedIn = computed(() => userId.value !== null)
 
@@ -36,7 +45,7 @@ export const useUserStore = defineStore('user', () => {
   function login(user, jwtToken) {
     userId.value = user.id
     nickname.value = user.nickname || user.name
-    role.value = user.role
+    role.value = normalizeRole(user.role)
     avatar.value = normalizeAvatarUrl(user.avatar)
     creditScore.value = user.creditScore ?? 100
     token.value = jwtToken
@@ -71,7 +80,7 @@ export const useUserStore = defineStore('user', () => {
       if (!data.token || !data.userId) return false
       userId.value = data.userId
       nickname.value = data.nickname || ''
-      role.value = data.role || ''
+      role.value = normalizeRole(data.role)
       avatar.value = normalizeAvatarUrl(data.avatar)
       creditScore.value = data.creditScore ?? 100
       token.value = data.token
@@ -83,44 +92,13 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  /** 普通用户在需求方/服务方之间切换身份 */
-  /** 普通用户在需求方/服务方之间切换身份 */
-  // 在 userStore.js 中修改 switchRole 方法
-  /**
-   * 切换用户身份（需求方 <-> 服务方）：
-   * 管理员或受限用户禁止切换；成功调用后端接口后才同步变更客户端角色。
-   */
-  async function switchRole() {
-    if (role.value === 'admin' || restricted.value) return
-
-    // 计算新的角色名称
-    const newRole = role.value === 'requester' ? 'provider' : 'requester'
-
-    try {
-      const { default: http } = await import('@/common/http')
-
-      // 调用后端接口更新数据库
-      // 注意：这里的 role 参数要与后端 User.Role 枚举值匹配 ('requester' 或 'provider')
-      await http.put(`/auth/role?role=${newRole}`)
-
-      // 后端更新成功后，再更新前端状态
-      role.value = newRole
-
-      const { ElMessage } = await import('element-plus')
-      ElMessage.success(`已切换为${newRole === 'requester' ? '需求方' : '服务方'}视图`)
-    } catch (error) {
-      const { ElMessage } = await import('element-plus')
-      ElMessage.error('切换身份失败，请重试')
-    }
-  }
-
   async function loginWithPassword(account, password) {
     const { default: http } = await import('@/common/http')
     try {
       const res = await http.post('/auth/login/password', { account, password })
       if (res.data.code === 200) {
         const d = res.data.data
-        login({ id: d.userId, nickname: d.nickname, role: d.role || 'requester', avatar: null, creditScore: d.creditScore ?? 100, restricted: d.restricted }, d.token)
+        login({ id: d.userId, nickname: d.nickname, role: d.role || 'user', avatar: null, creditScore: d.creditScore ?? 100, restricted: d.restricted }, d.token)
         return true
       }
     } catch { /* handled by interceptor */ }
@@ -133,7 +111,7 @@ export const useUserStore = defineStore('user', () => {
       const res = await http.post('/auth/login/sms', { phone, code })
       if (res.data.code === 200) {
         const d = res.data.data
-        login({ id: d.userId, nickname: d.nickname, role: d.role || 'requester', avatar: null, creditScore: d.creditScore ?? 100, restricted: d.restricted }, d.token)
+        login({ id: d.userId, nickname: d.nickname, role: d.role || 'user', avatar: null, creditScore: d.creditScore ?? 100, restricted: d.restricted }, d.token)
         return true
       }
     } catch { /* handled by interceptor */ }
@@ -150,7 +128,7 @@ export const useUserStore = defineStore('user', () => {
   }
 
   return { userId, nickname, role, avatar, creditScore, token, restricted,
-           isRequester, isProvider, isAdmin, isLoggedIn,
-           login, logout, restoreSession, switchRole, syncProfile,
+           isUser, isAdmin, isLoggedIn,
+           login, logout, restoreSession, syncProfile,
            loginWithPassword, loginWithSms, register }
 })

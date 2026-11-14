@@ -16,7 +16,7 @@ class CreditServiceTest {
     void clampsCreditAndKeepsAudit(int before, int delta, int expected) {
         UserRepository users = mock(UserRepository.class);
         CreditEventRepository events = mock(CreditEventRepository.class);
-        User user = user(1, User.Role.requester); user.setCreditScore(before);
+        User user = user(1, User.Role.user); user.setCreditScore(before);
         when(users.findLockedById(1L)).thenReturn(Optional.of(user));
         CreditService service = new CreditService(users, events, CLOCK);
         assertThat(service.adjust(1L, delta, "test-event", "测试" )).isTrue();
@@ -28,7 +28,7 @@ class CreditServiceTest {
     }
     @Test void duplicateEventCannotDeductAgainOrChangePayload() {
         UserRepository users = mock(UserRepository.class); CreditEventRepository events = mock(CreditEventRepository.class);
-        User user = user(1, User.Role.requester); user.setCreditScore(90);
+        User user = user(1, User.Role.user); user.setCreditScore(90);
         CreditEvent recorded = new CreditEvent(); recorded.setUserId(1L); recorded.setRequestedDelta(-10); recorded.setReason("逾期");
         when(users.findLockedById(1L)).thenReturn(Optional.of(user)); when(events.findByEventKey("overdue:20")).thenReturn(Optional.of(recorded));
         CreditService service = new CreditService(users, events, CLOCK);
