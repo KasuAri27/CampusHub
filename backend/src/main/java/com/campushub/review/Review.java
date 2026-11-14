@@ -33,6 +33,6 @@ public class Review {
     private boolean automatic;
 
     @CreationTimestamp
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column(name = "create_time", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 }

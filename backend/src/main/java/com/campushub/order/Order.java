@@ -50,7 +50,7 @@ public class Order {
     @Column(name = "cancelled_at")
     private LocalDateTime cancelledAt;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column(name = "create_time", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     /** 接单时冻结总金额与买卖双方，二手出售时买家是接单人，不按用户角色猜资金方向。 */
@@ -83,7 +83,7 @@ public class Order {
     @Column(length = 1000)
     private String disputeReason;
 
-    @Column(name = "updated_at", nullable = false)
+    @Column(name = "update_time", nullable = false)
     private LocalDateTime updatedAt;
 
     public enum OrderStatus {

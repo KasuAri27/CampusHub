@@ -20,5 +20,7 @@ public class CreditEvent {
     private int requestedDelta;
     @Column(length = 1000)
     private String reason;
+    /** 流水发生时间；库表列名统一为 create_time（M003），字段名保持不变以免影响调用方。 */
+    @Column(name = "create_time")
     private LocalDateTime createdAt;
 }
