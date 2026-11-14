@@ -58,20 +58,34 @@ jobs:
       - name: 编译、测试、打包与核心覆盖率门槛
         working-directory: backend
         run: mvn -B -ntp clean verify
-      - name: 在独立MySQL库验证旧结构升级及重复运行
+      - name: 在独立MySQL库验证全新建库、旧库升级及两者结构一致
         if: matrix.database == 'mysql'
         env:
           MYSQL_CONTAINER_ID: ${{ job.services.mysql.id }}
         run: |
-          docker exec "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password -e 'CREATE DATABASE campushub_migration_ci CHARACTER SET utf8mb4;'
-          sed '/^USE campushub;/d' backend/SQL/02-create-tables.sql | docker exec -i "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password campushub_migration_ci
-          docker exec -i "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password campushub_migration_ci < backend/src/test/resources/legacy-migration-fixture.sql
-          docker exec -i "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password campushub_migration_ci < backend/SQL/04-payment-migration.sql
-          docker exec -i "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password campushub_migration_ci < backend/SQL/04-payment-migration.sql
-          actual=$(docker exec "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password -N -B campushub_migration_ci -e "SELECT CONCAT(status,':',IF(amount_due IS NULL,'legacy','charged'),':',payment_code) FROM orders WHERE id=1")
+          db() { docker exec -i "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password "$@"; }
+          strip_use() { sed '/^USE campushub;/d' "$1"; }
+          db -e 'CREATE DATABASE campushub_migration_ci CHARACTER SET utf8mb4; CREATE DATABASE campushub_schema_ci CHARACTER SET utf8mb4;'
+          # 旧库：旧结构 + 旧数据，迁移脚本各执行两次以验证可重复运行。
+          strip_use backend/src/test/resources/legacy-schema.sql | db campushub_migration_ci
+          db campushub_migration_ci < backend/src/test/resources/legacy-migration-fixture.sql
+          for migration in M001-payment-upgrade M001-payment-upgrade M002-schema-cleanup M002-schema-cleanup; do
+            db campushub_migration_ci < "backend/SQL/migrations/$migration.sql"
+          done
+          actual=$(db -N -B campushub_migration_ci -e "SELECT CONCAT(status,':',IF(amount_due IS NULL,'legacy','charged'),':',payment_code) FROM orders WHERE id=1")
           test "$actual" = 'in_progress:legacy:old-proof.png'
-          copied=$(docker exec "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password -N -B campushub_migration_ci -e 'SELECT COUNT(*) FROM t_task_flea WHERE task_id=2 AND item_price=12.34')
+          copied=$(db -N -B campushub_migration_ci -e 'SELECT COUNT(*) FROM t_task_flea WHERE task_id=2 AND item_price=12.34')
           test "$copied" = '1'
+          # 新库：按编号执行全部建表脚本和测试数据。
+          for script in 02-user-tables 03-task-tables 04-chat-tables 05-test-data; do
+            strip_use "backend/SQL/$script.sql" | db campushub_schema_ci
+          done
+          seeded=$(db -N -B campushub_schema_ci -e "SELECT CONCAT((SELECT COUNT(*) FROM users),':',(SELECT COUNT(*) FROM tasks),':',(SELECT COUNT(*) FROM orders),':',(SELECT credit_score FROM users WHERE student_id='241880903'))")
+          test "$seeded" = '6:14:9:69'
+          # 结构比对：升级后的旧库必须与全新建库一致（历史保留列除外）。
+          db -N -B campushub_schema_ci < backend/src/test/resources/schema-fingerprint.sql > fresh-schema.txt
+          db -N -B campushub_migration_ci < backend/src/test/resources/schema-fingerprint.sql > migrated-schema.txt
+          diff -u fresh-schema.txt migrated-schema.txt
       - name: 保存失败报告与覆盖率
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
