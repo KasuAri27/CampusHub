@@ -60,5 +60,5 @@
 - **约定**：压测工具选型另议；脚本与数据一律放项目根目录内；测试库独立，不连开发/生产库。
 
 ### 4.3 工程协调
-- `.github/workflows/ci.yml` 触发分支现为 main/dev，需按新分支策略（main/SQL/user/admin/task/chat）调整，经批准后修改。
+- `.github/workflows/ci.yml` 触发分支已按新分支策略调整为 main/SQL/user/admin/task/chat（2026-11-14 批准并完成）。
 - SQL 分支 schema 变更与功能分支 JPA 实体变更必须同批评审、同时合并。
