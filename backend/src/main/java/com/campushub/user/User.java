@@ -46,7 +46,11 @@ public class User {
     @Column(length = 20)
     private String name;
 
-    /** 用户昵称 */
+    /**
+     * 用户昵称：最长 10 个汉字或 20 个英文字符（汉字计 2，英文数字计 1）。
+     * 列宽 20 只限制字符数，按显示宽度的限制由数据库约束 chk_users_nickname_length 兜底。
+     */
+    @Column(length = 20)
     private String nickname;
 
     /** 学校邮箱，全局唯一，用于登录和身份验证 */
@@ -61,9 +65,9 @@ public class User {
     @Column(name = "password_hash", nullable = false)
     private String password;
 
-    /** 用户角色枚举 */
+    /** 账号角色：普通用户或管理员，见 {@link Role}。 */
     @Enumerated(EnumType.STRING)
-    @Column(columnDefinition = "ENUM('requester','provider','admin')")
+    @Column(columnDefinition = "ENUM('user','admin')")
     private Role role;
 
     /** 信用评分，默认 100 */
@@ -90,10 +94,18 @@ public class User {
     @Column(name = "update_time")
     private LocalDateTime updateTime;
 
-    /** 用户角色枚举 */
+    /**
+     * 账号角色。
+     * <p>
+     * 普通用户不再区分“需求方/服务方”：同一账号既能发布需求也能接单，不能接自己的单
+     * 由接单逻辑校验。需求与订单中的 requester/provider 表示“这一单的发布者/接单人”，
+     * 与账号角色无关。管理员只做审核与监管，不发布、不接单。
+     * </p>
+     */
     public enum Role {
-        requester,
-        provider,
+        /** 普通用户：可发布需求，也可接他人的单。 */
+        user,
+        /** 管理员：审核需求、处理投诉、登记结算。 */
         admin
     }
 }

@@ -56,8 +56,8 @@ class OrderServiceTest {
 
     @Test
     void acceptTaskCreatesOrderAndMovesTaskToInProgress() {
-        User requester = user(1L, User.Role.requester);
-        User provider = user(2L, User.Role.provider);
+        User requester = user(1L, User.Role.user);
+        User provider = user(2L, User.Role.user);
         Task task = task(10L, requester, TaskStatus.published, new BigDecimal("12.50"));
 
         when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
@@ -88,7 +88,7 @@ class OrderServiceTest {
 
     @Test
     void acceptTaskRejectsRequesterAcceptingOwnTask() {
-        User requester = user(1L, User.Role.requester);
+        User requester = user(1L, User.Role.user);
         Task task = task(10L, requester, TaskStatus.published, BigDecimal.ZERO);
         when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
 
@@ -102,8 +102,24 @@ class OrderServiceTest {
     }
 
     @Test
+    void acceptTaskRejectsAdministrator() {
+        User requester = user(1L, User.Role.user);
+        User admin = user(3L, User.Role.admin);
+        Task task = task(10L, requester, TaskStatus.published, new BigDecimal("5.00"));
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
+        when(userRepository.findById(3L)).thenReturn(Optional.of(admin));
+
+        assertThatThrownBy(() -> orderService.acceptTask(10L, 3L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("管理员不能接单");
+
+        verify(orderRepository, never()).save(any());
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.published);
+    }
+
+    @Test
     void acceptTaskRejectsLowCreditBeforeCreatingOrder() {
-        User requester = user(1L, User.Role.requester), provider = user(2L, User.Role.provider);
+        User requester = user(1L, User.Role.user), provider = user(2L, User.Role.user);
         provider.setCreditScore(69);
         when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task(10L, requester, TaskStatus.published, BigDecimal.ZERO)));
         when(userRepository.findById(2L)).thenReturn(Optional.of(provider));
@@ -119,8 +135,8 @@ class OrderServiceTest {
 
     @Test
     void cancelOrderByProviderReopensTaskForOtherProviders() {
-        User requester = user(1L, User.Role.requester);
-        User provider = user(2L, User.Role.provider);
+        User requester = user(1L, User.Role.user);
+        User provider = user(2L, User.Role.user);
         Task task = task(10L, requester, TaskStatus.in_progress, BigDecimal.ZERO);
         Order order = order(20L, task, requester, provider, OrderStatus.in_progress);
         when(locks.lock(20L)).thenReturn(order);

@@ -35,6 +35,8 @@ public class PaymentAttempt {
     private String codeUrl;
     @Column(name = "provider_transaction_id", length = 100)
     private String providerTransactionId;
+    /** 下单时间；库表列名统一为 create_time（M003），字段名保持不变以免影响调用方。 */
+    @Column(name = "create_time")
     private LocalDateTime createdAt;
     private LocalDateTime paidAt;
     private LocalDateTime lastQueriedAt;

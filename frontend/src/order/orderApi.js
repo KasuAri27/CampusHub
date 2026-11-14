@@ -8,6 +8,8 @@ import http from '@/common/http'
 export default {
     /** 同时返回作为需求方和服务方参与的订单，避免旧“我的接单”遗漏付款入口。 */
     mine() { return http.get('/orders/mine') },
+    /** 我作为接单人参与的全部订单（含组队加入记录），按接单时间倒序。 */
+    myAccepted() { return http.get('/orders/my-accepted') },
     detail(orderId) { return http.get(`/orders/${orderId}`) },
     submitCompletion(orderId) { return http.post(`/orders/${orderId}/submit-completion`) },
     getByTaskId(taskId) {

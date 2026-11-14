@@ -45,10 +45,10 @@ public class Conversation {
     @Column(name = "is_deleted", nullable = false)
     private Boolean isDeleted = false;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column(name = "create_time", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
-    @Column(name = "updated_at", nullable = false)
+    @Column(name = "update_time", nullable = false)
     private LocalDateTime updatedAt;
 
     @PrePersist

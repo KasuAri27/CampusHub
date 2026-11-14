@@ -42,7 +42,7 @@ public class TaskService {
 
     /**
      * 创建需求业务流程：
-     * 校验发布资格（角色为 requester 且信用分不低于70分）；
+     * 校验发布资格（普通用户、账号正常且信用分不低于70分；管理员只做审核，不发布需求）；
      * 根据 taskType 实例化对应的多态实体，计算价格或初始化群人数；
      * 状态置为 pending_review，触发全量管理员审核站内通知。
      */
@@ -56,8 +56,9 @@ public class TaskService {
             throw new BusinessException(403, "您的信用分低于70分，暂无发布需求权限！");
         }
 
-        if (requester.getRole() != Role.requester) {
-            throw new BusinessException(403, "仅需求方可以发布需求");
+        // 角色合并后普通用户都能发布；管理员负责审核需求，不能自己发布再自己审核。
+        if (requester.getRole() == Role.admin) {
+            throw new BusinessException(403, "管理员不能发布需求");
         }
 
         Category category = categoryRepository.findById(request.getCategoryId())

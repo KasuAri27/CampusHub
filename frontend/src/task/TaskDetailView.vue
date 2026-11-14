@@ -93,7 +93,7 @@
 
             <div class="action-buttons">
               <button
-                  v-if="userStore.isProvider && task.status === 'published' && (!orderDetail || orderDetail.orderStatus === 'cancelled')"
+                  v-if="canAccept"
                   class="accept-btn"
                   :loading="actionLoading"
                   @click="handleAccept"
@@ -109,7 +109,7 @@
                 class="cancel-btn" @click="handleCancel">取消需求</button>
               <OrderActions v-if="orderDetail" :order="orderDetail" @updated="refreshOrder" />
               <router-link v-if="task.taskType === 'TEAM' && task.publisher?.userId === userStore.userId" to="/my-orders">管理组队成员订单</router-link>
-              <p v-if="userStore.isProvider && task.status === 'published' && (!orderDetail || orderDetail.orderStatus === 'cancelled')" class="action-hint">
+              <p v-if="canAccept" class="action-hint">
                 接单后订单进入进行中状态
               </p>
             </div>
@@ -153,6 +153,17 @@ const statusMap = {
 
 const statusLabel = computed(() => task.value ? (statusMap[task.value.status]?.[0] || task.value.status) : '')
 const statusClass = computed(() => task.value ? (statusMap[task.value.status]?.[1] || 'default') : 'default')
+/**
+ * 是否显示“立即接单”：普通用户（管理员不接单）、账号未受限、需求处于待接单、
+ * 不是自己发布的需求，且自己在本需求上没有未取消的订单。后端接单接口会再次校验同样的规则。
+ */
+const canAccept = computed(() => {
+  const t = task.value
+  if (!t || !userStore.isLoggedIn || !userStore.isUser || userStore.restricted) return false
+  if (t.status !== 'published') return false
+  if (Number(t.publisher?.userId) === Number(userStore.userId)) return false
+  return !orderDetail.value || orderDetail.value.orderStatus === 'cancelled'
+})
 
 function formatTime(d) {
   if (!d) return ''

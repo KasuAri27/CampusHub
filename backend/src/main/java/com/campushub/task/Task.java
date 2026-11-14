@@ -69,10 +69,10 @@ public abstract class Task {
     @Column(name = "published_at", nullable = false)
     private LocalDateTime publishedAt = LocalDateTime.now();
 
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column(name = "create_time", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
-    @Column(name = "updated_at", nullable = false)
+    @Column(name = "update_time", nullable = false)
     private LocalDateTime updatedAt;
 
     public enum TaskStatus {

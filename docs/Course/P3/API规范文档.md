@@ -83,7 +83,7 @@
   | password | String | 是 | 登录密码（BCrypt 加密） |
   | nickname | String | 是 | 昵称 |
   | college | String | 否 | 学院院系 |
-- **成功响应**：返回 `LoginResponse`，包含 `token`、`role`、`user` 基本信息。
+- **成功响应**：返回 `LoginResponse`，包含 `token`、`role`、`user` 基本信息。`role` 取值为 `user`（普通用户）或 `admin`（管理员）。
 
 ### 2.3 账号密码登录
 - **URL**：`/v1/auth/login/password`
@@ -94,7 +94,7 @@
   | --- | --- | --- | --- |
   | account | String | 是 | 学号或 11 位手机号 |
   | password | String | 是 | 登录密码 |
-- **成功响应**：返回 `token`、`role`、`user`。
+- **成功响应**：返回 `token`、`role`、`user`，`role` 取值同 2.2。
 
 ### 2.4 手机验证码登录
 - **URL**：`/v1/auth/login/sms`
@@ -110,7 +110,7 @@
 - **获取资料**：`GET /v1/auth/profile`（需要认证）
 - **修改资料**：`PUT /v1/auth/profile`（需要认证，支持修改昵称、头像、学院等）
 - **修改密码**：`PUT /v1/auth/password`（需要认证，包含 `oldPassword` 和 `newPassword`）
-- **切换角色**：`PUT /v1/auth/role?role=requester|provider`
+- **角色说明**（2026-11 修订）：原“切换角色”接口 `PUT /v1/auth/role` 已删除。普通用户不再区分需求方/服务方，同一账号既能发布需求也能接单（不能接自己发布的需求）；管理员只负责审核与监管，不发布、不接单。
 
 ---
 
@@ -119,7 +119,7 @@
 ### 3.1 发布需求
 - **URL**：`/v1/tasks`
 - **Method**：`POST`
-- **认证**：是（信用分需 ≥ 70）
+- **认证**：是（普通用户且信用分需 ≥ 70；管理员不可发布）
 - **请求参数**：
   | 字段名 | 类型 | 必填 | 说明 |
   | --- | --- | --- | --- |
@@ -171,7 +171,7 @@
 ### 4.1 承接需求（接单）
 - **URL**：`/v1/orders/accept`
 - **Method**：`POST`
-- **认证**：是（信用分需 ≥ 70，不能接自己发布的需求）
+- **认证**：是（普通用户且信用分需 ≥ 70，不能接自己发布的需求；管理员不可接单）
 - **Query 参数**：
   | 参数名 | 类型 | 必填 | 说明 |
   | --- | --- | --- | --- |
@@ -181,7 +181,7 @@
 ### 4.2 订单详情与历史
 - **获取订单详情**：`GET /v1/orders/{orderId}`（仅订单参与双方或管理员可见）
 - **根据任务查订单**：`GET /v1/orders/task/{taskId}`
-- **我参与的所有订单**：`GET /v1/orders/mine`（同时包含作为需求方与服务方的订单）
+- **我参与的所有订单**：`GET /v1/orders/mine`（同时包含我作为发布者与接单人的订单）
 - **我承接的订单**：`GET /v1/orders/my-accepted?status=...`
 
 ### 4.3 服务方提交完工
