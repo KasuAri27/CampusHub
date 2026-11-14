@@ -43,11 +43,11 @@ SET @pwd = '$2a$10$zxNS7Bt5EfwkMh6pdIvWgOICetaxd2xH4qbe/hCpTvAkUSZucNS3q';
 
 -- ---------------------------------------------------------------- 账号
 INSERT INTO users (id, student_id, name, nickname, email, phone, password_hash, role, credit_score, status, create_time, update_time) VALUES
-    (1, '241880900', '测试用户1', '测试用户1', '241880900@smail.nju.edu.cn', 'seed-phone-241880900', @pwd, 'requester', 100, 1, @now - INTERVAL 30 DAY, @now),
-    (2, '241880901', '测试用户2', '测试用户2', '241880901@smail.nju.edu.cn', 'seed-phone-241880901', @pwd, 'requester', 100, 1, @now - INTERVAL 30 DAY, @now),
-    (3, '241880902', '测试用户3', '测试用户3', '241880902@smail.nju.edu.cn', 'seed-phone-241880902', @pwd, 'requester',  70, 1, @now - INTERVAL 30 DAY, @now),
-    (4, '241880903', '测试用户4', '测试用户4', '241880903@smail.nju.edu.cn', 'seed-phone-241880903', @pwd, 'requester',  69, 1, @now - INTERVAL 30 DAY, @now),
-    (5, '241880904', '测试用户5', '测试用户5', '241880904@smail.nju.edu.cn', 'seed-phone-241880904', @pwd, 'requester',  99, 1, @now - INTERVAL 30 DAY, @now),
+    (1, '241880900', '测试用户1', '测试用户1', '241880900@smail.nju.edu.cn', 'seed-phone-241880900', @pwd, 'user',      100, 1, @now - INTERVAL 30 DAY, @now),
+    (2, '241880901', '测试用户2', '测试用户2', '241880901@smail.nju.edu.cn', 'seed-phone-241880901', @pwd, 'user',      100, 1, @now - INTERVAL 30 DAY, @now),
+    (3, '241880902', '测试用户3', '测试用户3', '241880902@smail.nju.edu.cn', 'seed-phone-241880902', @pwd, 'user',       70, 1, @now - INTERVAL 30 DAY, @now),
+    (4, '241880903', '测试用户4', '测试用户4', '241880903@smail.nju.edu.cn', 'seed-phone-241880903', @pwd, 'user',       69, 1, @now - INTERVAL 30 DAY, @now),
+    (5, '241880904', '测试用户5', '测试用户5', '241880904@smail.nju.edu.cn', 'seed-phone-241880904', @pwd, 'user',       99, 1, @now - INTERVAL 30 DAY, @now),
     (6, '241880999', '管理员',    '管理员',    '241880999@smail.nju.edu.cn', 'seed-phone-241880999', @pwd, 'admin',     100, 1, @now - INTERVAL 30 DAY, @now);
 
 -- ---------------------------------------------------------------- 需求（父表）
