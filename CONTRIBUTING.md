@@ -1,6 +1,19 @@
 # 贡献规范
 
-功能、修复和改进在 `dev` 分支开发，通过 PR 合入 `main`。不要直接把未经检查的改动合入主分支。
+## 分支策略
+
+| 分支 | 职责范围 |
+|---|---|
+| `main` | 主干：整体文档编写、横切共享代码（common、config 基础、util 除外见下）；所有合并的目标 |
+| `SQL` | 数据库：`backend/SQL/` 迁移、数据库配置、schema 与实体协调 |
+| `user` | 用户页面、登录注册、用户权限：后端 user/verification/file/security/util 与 SecurityConfig，前端 user/、views/、userStore |
+| `admin` | 管理员相关功能：admin 前后端 |
+| `task` | 核心业务：发布需求、接单、交易、组队等（task/order/payment/review/complaint/category 前后端，高度耦合不再细分） |
+| `chat` | 通知与 WebSocket 对话系统：chat/notification 前后端 |
+
+- **未经许可不许合并**：任何分支合并（含合入 main）必须经用户明确批准；不要直接把未经检查的改动合入主分支。
+- **文件位置纪律**：所有分支产生的文件（代码、文档、脚本、测试数据）一律放在项目根目录之内，不得延伸到项目外。
+- 模块边界、冻结接口与共享文件所有权见 [模块契约](docs/Engineer/模块契约.md)；跨分支只能调用冻结接口。
 
 ## 提交信息
 

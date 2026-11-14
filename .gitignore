@@ -8,8 +8,8 @@ Thumbs.db
 .idea/
 .claude/
 .vscode/
+.qoder-credits/
 *.iml
-docs/
 refs/
 
 .env
@@ -56,7 +56,6 @@ docker-compose.override.yml
 *.env.docker
 
 logs/
-*.lognode_modules/
 
 # 财务凭证及商户私钥只留在运行环境，不进入版本控制。
 private-storage/
