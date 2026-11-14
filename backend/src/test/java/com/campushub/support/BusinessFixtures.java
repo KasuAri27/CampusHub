@@ -28,7 +28,7 @@ public final class BusinessFixtures {
         return task;
     }
     public static Order order() {
-        User requester = user(1, User.Role.requester), provider = user(2, User.Role.provider);
+        User requester = user(1, User.Role.user), provider = user(2, User.Role.user);
         Order order = Order.builder().id(20L).task(task(requester)).requester(requester).provider(provider)
                 .status(Order.OrderStatus.in_progress).amountDue(new BigDecimal("6.50")).payerId(1L).payeeId(2L)
                 .paymentStatus(Order.PaymentStatus.unpaid).settlementStatus(Order.SettlementStatus.pending).build();

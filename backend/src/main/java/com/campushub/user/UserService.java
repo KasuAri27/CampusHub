@@ -50,7 +50,7 @@ public class UserService implements UserDetailsService {
         user.setEmail(request.getStudentId() + "@smail.nju.edu.cn");
         user.setPhone(encryptedPhone);
         user.setPassword(bcryptUtil.encode(request.getPassword()));
-        user.setRole(User.Role.requester);
+        user.setRole(User.Role.user);
         user.setNickname("User" + request.getStudentId().substring(0, 4));
         user.setCreditScore(100);
         user.setStatus(1);
@@ -144,18 +144,6 @@ public class UserService implements UserDetailsService {
             }
         }
 
-        userRepository.save(user);
-    }
-
-    @Transactional
-    public void updateUserRole(Long userId, String roleName) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(404, "用户不存在"));
-        // 白名单：只允许在业务角色之间切换，管理员身份不可通过该接口获得
-        if (!"requester".equals(roleName) && !"provider".equals(roleName)) {
-            throw new BusinessException(403, "仅支持切换为需求方或服务方");
-        }
-        user.setRole(User.Role.valueOf(roleName));
         userRepository.save(user);
     }
 
