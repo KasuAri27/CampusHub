@@ -52,7 +52,7 @@ INSERT INTO users (id, student_id, name, nickname, email, phone, password_hash, 
 
 -- ---------------------------------------------------------------- 需求（父表）
 -- reward 按发布规则填写：辅导=时薪×时长，二手=成交价，组队恒为空，免费咨询为空。
-INSERT INTO tasks (id, requester_id, category_id, task_type, title, description, reward, campus, status, location, deadline, view_count, published_at, created_at) VALUES
+INSERT INTO tasks (id, requester_id, category_id, task_type, title, description, reward, campus, status, location, deadline, view_count, published_at, create_time) VALUES
     ( 1, 1, 1, 'RUNNING',    '帮取菜鸟驿站快递',   '一个小件快递，送到仙林 3 栋楼下即可。',         5.00, '仙林校区', 'published',      '菜鸟驿站 → 仙林3栋',  @now + INTERVAL 3 DAY,  12, @now - INTERVAL 1 DAY,  @now - INTERVAL 25 HOUR),
     ( 2, 1, 2, 'TUTORING',   '高数期末辅导',       '重点讲多元微积分，约两小时。',                 100.00, '仙林校区', 'in_progress',    '仙林图书馆',          @now + INTERVAL 5 DAY,  30, @now - INTERVAL 2 DAY,  @now - INTERVAL 49 HOUR),
     ( 3, 2, 3, 'FLEA',       '出售九成新台灯',     '宿舍搬家出，自取。',                           120.00, '仙林校区', 'in_progress',    '仙林5栋',             @now + INTERVAL 7 DAY,  18, @now - INTERVAL 2 DAY,  @now - INTERVAL 49 HOUR),
@@ -96,7 +96,7 @@ INSERT INTO t_task_consulting (task_id, consulting_mode) VALUES
 -- ---------------------------------------------------------------- 订单
 -- 付款方向：普通需求 发布者付款、接单人收款；二手出售(T3) 接单人付款、发布者收款。
 -- 组队订单金额为 0：无需付款、无需结算、不开放评价（组队分类 has_review=0）。
-INSERT INTO orders (id, task_id, requester_id, provider_id, status, accepted_at, completed_at, created_at,
+INSERT INTO orders (id, task_id, requester_id, provider_id, status, accepted_at, completed_at, create_time,
                     amount_due, payer_id, payee_id, payment_status, settlement_status,
                     completion_submitted_at, acceptance_due_at, payment_due_at, overdue_at, escalation_due_at,
                     paid_at, review_eligible_at, disputed, disputed_at, dispute_reason) VALUES
@@ -148,14 +148,14 @@ INSERT INTO orders (id, task_id, requester_id, provider_id, status, accepted_at,
 -- ---------------------------------------------------------------- 支付单
 -- 仅模拟“渠道已确认付款”后的库内状态，单号和交易号都是 SEED 开头的假值，不对应任何真实交易。
 INSERT INTO payment_attempts (id, order_id, active_slot, out_trade_no, channel, amount, app_id, merchant_id, status,
-                              code_url, provider_transaction_id, created_at, paid_at, last_queried_at, closed_at) VALUES
+                              code_url, provider_transaction_id, create_time, paid_at, last_queried_at, closed_at) VALUES
     (1, 5, 1, 'SEED0000000000000000000000000001', 'WECHAT', 60.00, 'seed-app-id', 'seed-merchant-id', 'PAID',
         NULL, 'SEED-WECHAT-TRANSACTION-0001', @now - INTERVAL 47 HOUR - INTERVAL 45 MINUTE, @now - INTERVAL 47 HOUR - INTERVAL 30 MINUTE, NULL, NULL),
     (2, 6, 1, 'SEED0000000000000000000000000002', 'ALIPAY',  6.00, 'seed-app-id', 'seed-seller-id',   'PAID',
         NULL, 'SEED-ALIPAY-TRANSACTION-0002', @now - INTERVAL 3 DAY + INTERVAL 20 MINUTE, @now - INTERVAL 3 DAY + INTERVAL 30 MINUTE, NULL, NULL);
 
 -- ---------------------------------------------------------------- 评价与投诉
-INSERT INTO reviews (id, order_id, score, comment, automatic, created_at) VALUES
+INSERT INTO reviews (id, order_id, score, comment, automatic, create_time) VALUES
     (1, 6, 2, '比约定晚了一个多小时才送到。', 0, @now - INTERVAL 2 DAY);
 
 INSERT INTO complaints (id, complainant_id, order_id, target_id, reason, description, image_url, create_time, resolved) VALUES
@@ -163,13 +163,13 @@ INSERT INTO complaints (id, complainant_id, order_id, target_id, reason, descrip
 
 -- ---------------------------------------------------------------- 信用分流水
 -- 与上面的分数对得上：用户4 因 O4 逾期 79→69；用户5 因 O6 被打两星 100→99。
-INSERT INTO credit_events (id, event_key, user_id, previous_score, resulting_score, requested_delta, reason, created_at) VALUES
+INSERT INTO credit_events (id, event_key, user_id, previous_score, resulting_score, requested_delta, reason, create_time) VALUES
     (1, 'overdue:4', 4, 79, 69, -10, '验收后1小时未付款', @now - INTERVAL 4 HOUR),
     (2, 'review:6',  5, 100, 99,  -1, '订单评分：2',      @now - INTERVAL 2 DAY);
 
 -- ---------------------------------------------------------------- 会话
 -- 1-5 系统通知会话，6-12 订单私聊，13 组队群（T8）。
-INSERT INTO conversations (id, conv_type, task_id, order_id, group_name, owner_id, max_members, created_at, updated_at) VALUES
+INSERT INTO conversations (id, conv_type, task_id, order_id, group_name, owner_id, max_members, create_time, update_time) VALUES
     ( 1, 'SYSTEM_NOTIFY', NULL, NULL, '系统通知', NULL, NULL, @now - INTERVAL 30 DAY, @now - INTERVAL 2 HOUR),
     ( 2, 'SYSTEM_NOTIFY', NULL, NULL, '系统通知', NULL, NULL, @now - INTERVAL 30 DAY, @now - INTERVAL 20 MINUTE),
     ( 3, 'SYSTEM_NOTIFY', NULL, NULL, '系统通知', NULL, NULL, @now - INTERVAL 30 DAY, @now - INTERVAL 20 MINUTE),
@@ -212,7 +212,7 @@ INSERT INTO conversation_members (conv_id, user_id, role, joined_at, read_at) VA
 
 -- ---------------------------------------------------------------- 消息
 -- sender_id=0 的是系统消息，文案与代码中自动生成的一致。
-INSERT INTO messages (conv_id, sender_id, msg_type, content, created_at) VALUES
+INSERT INTO messages (conv_id, sender_id, msg_type, content, create_time) VALUES
     -- 系统通知会话：与下方 notifications 一一对应（“【标题】内容”）
     ( 1, 0, 'SYSTEM', '【有人接单了】测试用户2 接了你的需求《周末羽毛球双打》。', @now - INTERVAL 1 DAY),
     ( 1, 0, 'SYSTEM', '【有人接单了】测试用户3 接了你的需求《周末羽毛球双打》。', @now - INTERVAL 20 HOUR),

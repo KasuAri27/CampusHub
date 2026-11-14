@@ -28,9 +28,9 @@ CREATE TABLE categories (
     icon            VARCHAR(255)    DEFAULT NULL             COMMENT '分类图标 URL',
     has_review      TINYINT(1)      NOT NULL DEFAULT 0       COMMENT '该分类订单是否开放评价：1=开放（七天未评自动四星），0=不开放',
     sort_order      INT             NOT NULL DEFAULT 0       COMMENT '前端展示顺序，越小越靠前',
-    created_at      DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
+    create_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
     PRIMARY KEY (id),
-    UNIQUE KEY uk_name (name)
+    UNIQUE KEY uk_categories_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='需求分类字典';
 
 -- ----------------------------------------------------------------------------
@@ -61,13 +61,13 @@ CREATE TABLE tasks (
     deadline        DATETIME(6)     DEFAULT NULL             COMMENT '截止时间：过了截止仍未接单会被自动取消，也不能再接单',
     view_count      INT             NOT NULL DEFAULT 0       COMMENT '浏览量',
     published_at    DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '发布时间；审核通过时刷新为通过时刻，广场按它倒序',
-    created_at      DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
-    updated_at      DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后修改时间；群聊清理以它作为任务结束时刻',
+    create_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
+    update_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后修改时间；群聊清理以它作为任务结束时刻',
     PRIMARY KEY (id),
-    KEY idx_requester_id (requester_id),
-    KEY idx_category_id (category_id),
-    KEY idx_published_at (published_at),
-    KEY idx_tasks_status_published (status, published_at),
+    KEY idx_tasks_requester_id (requester_id),
+    KEY idx_tasks_category_id (category_id),
+    KEY idx_tasks_published_at (published_at),
+    KEY idx_tasks_status_published_at (status, published_at),
     KEY idx_tasks_status_deadline (status, deadline),
     CONSTRAINT fk_task_requester FOREIGN KEY (requester_id) REFERENCES users(id),
     CONSTRAINT fk_task_category  FOREIGN KEY (category_id)  REFERENCES categories(id)
@@ -161,8 +161,8 @@ CREATE TABLE orders (
     accepted_at             DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '接单/加入时间',
     completed_at            DATETIME(6)     DEFAULT NULL             COMMENT '验收完成时间',
     cancelled_at            DATETIME(6)     DEFAULT NULL             COMMENT '取消时间',
-    created_at              DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
-    updated_at              DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后修改时间',
+    create_time             DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
+    update_time             DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后修改时间',
     amount_due              DECIMAL(10,2)   DEFAULT NULL             COMMENT '应付金额（元），接单时冻结；为空的是规则上线前的历史订单，须人工核对',
     payer_id                BIGINT          DEFAULT NULL             COMMENT '付款人（同时是验收方），二手出售时是接单人',
     payee_id                BIGINT          DEFAULT NULL             COMMENT '收款人（同时是提交完成的一方）',
@@ -183,10 +183,10 @@ CREATE TABLE orders (
     disputed_at             DATETIME(6)     DEFAULT NULL             COMMENT '发起争议时间',
     dispute_reason          VARCHAR(1000)   DEFAULT NULL             COMMENT '争议原因',
     PRIMARY KEY (id),
-    KEY idx_requester_id (requester_id),
-    KEY idx_provider_id (provider_id),
-    KEY idx_orders_task_provider (task_id, provider_id),
-    KEY idx_orders_status_review (status, review_eligible_at),
+    KEY idx_orders_requester_id (requester_id),
+    KEY idx_orders_provider_id (provider_id),
+    KEY idx_orders_task_id_provider_id (task_id, provider_id),
+    KEY idx_orders_status_review_eligible_at (status, review_eligible_at),
     CONSTRAINT fk_order_task      FOREIGN KEY (task_id)      REFERENCES tasks(id),
     CONSTRAINT fk_order_requester FOREIGN KEY (requester_id) REFERENCES users(id),
     CONSTRAINT fk_order_provider  FOREIGN KEY (provider_id)  REFERENCES users(id)
@@ -205,21 +205,22 @@ CREATE TABLE payment_attempts (
     id                      BIGINT          NOT NULL AUTO_INCREMENT PRIMARY KEY COMMENT '支付单ID',
     order_id                BIGINT          NOT NULL                 COMMENT '对应订单',
     active_slot             INT             NULL DEFAULT 1           COMMENT '有效单占位：1=当前有效单，NULL=已关闭的历史单',
-    out_trade_no            VARCHAR(32)     NOT NULL UNIQUE          COMMENT '商户订单号（发给渠道的单号，32 位无横线 UUID）',
+    out_trade_no            VARCHAR(32)     NOT NULL                 COMMENT '商户订单号（发给渠道的单号，32 位无横线 UUID）',
     channel                 ENUM('WECHAT','ALIPAY') NOT NULL         COMMENT '支付渠道',
     amount                  DECIMAL(10,2)   NOT NULL                 COMMENT '下单金额（元），必须等于订单 amount_due',
-    app_id                  VARCHAR(255)    DEFAULT NULL             COMMENT '下单时使用的渠道 AppID，回调时核对',
-    merchant_id             VARCHAR(255)    DEFAULT NULL             COMMENT '下单时使用的商户号/卖家号，回调时核对',
+    app_id                  VARCHAR(255)    NOT NULL                 COMMENT '下单时使用的渠道 AppID，回调时核对',
+    merchant_id             VARCHAR(255)    NOT NULL                 COMMENT '下单时使用的商户号/卖家号，回调时核对',
     status                  ENUM('PENDING','PAID','CLOSED') NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING=待支付，PAID=渠道确认已付，CLOSED=渠道确认已关闭',
     code_url                VARCHAR(1500)   DEFAULT NULL             COMMENT '付款二维码内容',
     provider_transaction_id VARCHAR(100)    DEFAULT NULL             COMMENT '渠道交易号（微信 transaction_id / 支付宝 trade_no）',
-    created_at              DATETIME(6)     DEFAULT NULL             COMMENT '下单时间',
+    create_time             DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '下单时间',
     paid_at                 DATETIME(6)     DEFAULT NULL             COMMENT '渠道返回的付款时间',
     last_queried_at         DATETIME(6)     DEFAULT NULL             COMMENT '最近一次主动查单时间',
     closed_at               DATETIME(6)     DEFAULT NULL             COMMENT '关闭时间',
-    UNIQUE KEY uk_active_payment (order_id, active_slot),
-    UNIQUE KEY uk_channel_transaction (channel, provider_transaction_id),
-    KEY idx_payment_attempts_status_queried (status, last_queried_at, id),
+    UNIQUE KEY uk_payment_attempts_out_trade_no (out_trade_no),
+    UNIQUE KEY uk_payment_attempts_order_id_active_slot (order_id, active_slot),
+    UNIQUE KEY uk_payment_attempts_channel_provider_transaction_id (channel, provider_transaction_id),
+    KEY idx_payment_attempts_status_last_queried_at_id (status, last_queried_at, id),
     CONSTRAINT fk_payment_business_order FOREIGN KEY (order_id) REFERENCES orders(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='支付单';
 
@@ -231,13 +232,15 @@ CREATE TABLE payment_attempts (
 -- ----------------------------------------------------------------------------
 CREATE TABLE settlement_records (
     id                  BIGINT          NOT NULL AUTO_INCREMENT PRIMARY KEY COMMENT '登记ID',
-    order_id            BIGINT          NOT NULL UNIQUE          COMMENT '对应订单',
-    payee_id            BIGINT          DEFAULT NULL             COMMENT '收款人（冗余自订单，便于核对）',
-    administrator_id    BIGINT          DEFAULT NULL             COMMENT '登记的管理员',
+    order_id            BIGINT          NOT NULL                 COMMENT '对应订单',
+    payee_id            BIGINT          NOT NULL                 COMMENT '收款人（冗余自订单，便于核对）',
+    administrator_id    BIGINT          NOT NULL                 COMMENT '登记的管理员',
     amount              DECIMAL(10,2)   NOT NULL                 COMMENT '实际转账金额（元）',
-    transfer_reference  VARCHAR(100)    NOT NULL UNIQUE          COMMENT '线下转账流水号，防止同一笔转账登记两次',
+    transfer_reference  VARCHAR(100)    NOT NULL                 COMMENT '线下转账流水号，防止同一笔转账登记两次',
     evidence_filename   VARCHAR(100)    NOT NULL                 COMMENT '凭证文件名（private-storage/settlements 下）',
-    recorded_at         DATETIME(6)     DEFAULT NULL             COMMENT '登记时间',
+    recorded_at         DATETIME(6)     NOT NULL                 COMMENT '登记时间',
+    UNIQUE KEY uk_settlement_records_order_id (order_id),
+    UNIQUE KEY uk_settlement_records_transfer_reference (transfer_reference),
     CONSTRAINT fk_settlement_order FOREIGN KEY (order_id) REFERENCES orders(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='人工结算登记';
 
@@ -254,9 +257,9 @@ CREATE TABLE reviews (
     score           INT             NOT NULL                 COMMENT '评分 1-5',
     comment         VARCHAR(200)    DEFAULT NULL             COMMENT '评价内容',
     automatic       TINYINT(1)      NOT NULL DEFAULT 0       COMMENT '1=超时系统默认四星，0=用户手动评价',
-    created_at      DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '评价时间',
+    create_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '评价时间',
     PRIMARY KEY (id),
-    UNIQUE KEY uk_order_id (order_id),
+    UNIQUE KEY uk_reviews_order_id (order_id),
     CONSTRAINT fk_review_order FOREIGN KEY (order_id) REFERENCES orders(id),
     CONSTRAINT chk_score CHECK (score >= 1 AND score <= 5)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='评价';
@@ -281,7 +284,7 @@ CREATE TABLE complaints (
     resolved_at     DATETIME(6)     DEFAULT NULL             COMMENT '处理时间',
     resolution      VARCHAR(500)    DEFAULT NULL             COMMENT '处理结论',
     PRIMARY KEY (id),
-    KEY idx_order_id (order_id),
+    KEY idx_complaints_order_id (order_id),
     CONSTRAINT fk_complaint_order FOREIGN KEY (order_id) REFERENCES orders(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='投诉';
 

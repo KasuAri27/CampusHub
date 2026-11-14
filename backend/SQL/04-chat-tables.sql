@@ -34,11 +34,12 @@ CREATE TABLE conversations (
     keep_group      INT             DEFAULT NULL             COMMENT '保留确认：NULL=还没问过，0=已询问待确认，1=确认保留',
     keep_asked_at   DATETIME(6)     DEFAULT NULL             COMMENT '发出保留询问的时间',
     is_deleted      TINYINT(1)      NOT NULL DEFAULT 0       COMMENT '是否已解散/软删除',
-    created_at      DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
-    updated_at      DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后更新时间，会话列表按它倒序',
+    create_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
+    update_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后更新时间，会话列表按它倒序',
     PRIMARY KEY (id),
-    KEY idx_conv_type (conv_type),
-    KEY idx_conv_task_type (task_id, conv_type),
+    KEY idx_conversations_conv_type (conv_type),
+    KEY idx_conversations_task_id_conv_type (task_id, conv_type),
+    KEY idx_conversations_owner_id (owner_id),
     CONSTRAINT fk_conv_owner FOREIGN KEY (owner_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会话';
 
@@ -55,7 +56,8 @@ CREATE TABLE conversation_members (
     joined_at       DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '加入时间',
     read_at         DATETIME(6)     DEFAULT NULL             COMMENT '最后已读时间，为空表示从未打开过',
     PRIMARY KEY (id),
-    UNIQUE KEY uk_conv_user (conv_id, user_id),
+    UNIQUE KEY uk_conversation_members_conv_id_user_id (conv_id, user_id),
+    KEY idx_conversation_members_user_id (user_id),
     FOREIGN KEY (conv_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会话成员';
@@ -72,9 +74,9 @@ CREATE TABLE messages (
     msg_type        VARCHAR(20)     NOT NULL DEFAULT 'TEXT'  COMMENT '消息类型：TEXT=文字，IMAGE=图片（content 为图片 URL），SYSTEM=系统提示',
     content         TEXT            NOT NULL                 COMMENT '消息内容',
     is_recalled     TINYINT(1)      NOT NULL DEFAULT 0       COMMENT '是否已撤回',
-    created_at      DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '发送时间',
+    create_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '发送时间',
     PRIMARY KEY (id),
-    KEY idx_conv_created (conv_id, created_at),
+    KEY idx_messages_conv_id_create_time (conv_id, create_time),
     FOREIGN KEY (conv_id) REFERENCES conversations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='消息';
 
@@ -94,7 +96,7 @@ CREATE TABLE notifications (
     create_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '发送时间',
     read_time       DATETIME(6)     DEFAULT NULL             COMMENT '已读时间',
     PRIMARY KEY (id),
-    KEY idx_notifications_receiver_time (receiver_id, create_time),
-    KEY idx_notifications_receiver_unread (receiver_id, is_read, create_time),
+    KEY idx_notifications_receiver_id_create_time (receiver_id, create_time),
+    KEY idx_notifications_receiver_id_is_read_create_time (receiver_id, is_read, create_time),
     CONSTRAINT fk_notification_receiver FOREIGN KEY (receiver_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='站内通知';

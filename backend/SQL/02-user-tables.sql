@@ -24,7 +24,7 @@ CREATE TABLE users (
     id              BIGINT          NOT NULL AUTO_INCREMENT  COMMENT '用户ID',
     student_id      VARCHAR(20)     DEFAULT NULL             COMMENT '学号：密码登录账号，注册时绑定；早期账号可能为空',
     name            VARCHAR(20)     NOT NULL                 COMMENT '真实姓名',
-    nickname        VARCHAR(255)    DEFAULT NULL             COMMENT '昵称：聊天和列表优先展示，为空时显示真实姓名；注册默认 User+学号前四位',
+    nickname        VARCHAR(20)     DEFAULT NULL             COMMENT '昵称：最长 10 个汉字或 20 个英文字符（汉字计 2，英文数字计 1）；为空时显示真实姓名；注册默认 User+学号前四位',
     email           VARCHAR(100)    NOT NULL                 COMMENT '校园邮箱：接收验证码，注册时由学号生成 学号@smail.nju.edu.cn',
     phone           VARCHAR(255)    NOT NULL                 COMMENT '手机号密文：AES 加密后 Base64；解密失败时页面显示 ***',
     password_hash   VARCHAR(255)    NOT NULL                 COMMENT 'BCrypt 密码哈希',
@@ -36,10 +36,13 @@ CREATE TABLE users (
     create_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '注册时间',
     update_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后修改时间',
     PRIMARY KEY (id),
-    UNIQUE KEY uk_email (email),
-    UNIQUE KEY uk_phone (phone),
-    CONSTRAINT uk_users_student_id UNIQUE (student_id),
-    CONSTRAINT chk_users_credit_score CHECK (credit_score BETWEEN 0 AND 100)
+    UNIQUE KEY uk_users_email (email),
+    UNIQUE KEY uk_users_phone (phone),
+    UNIQUE KEY uk_users_student_id (student_id),
+    CONSTRAINT chk_users_credit_score CHECK (credit_score BETWEEN 0 AND 100),
+    -- 按显示宽度限长：utf8mb4 下汉字 3 字节、英文 1 字节，(字节数 + 字符数) 恰好让汉字计 4、英文计 2，
+    -- 上限 40 即“10 个汉字或 20 个英文字符”。仅靠 VARCHAR(20) 会放行 20 个汉字。
+    CONSTRAINT chk_users_nickname_length CHECK (LENGTH(nickname) + CHAR_LENGTH(nickname) <= 40)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户';
 
 -- ----------------------------------------------------------------------------
@@ -55,14 +58,16 @@ CREATE TABLE users (
 -- ----------------------------------------------------------------------------
 CREATE TABLE credit_events (
     id              BIGINT          NOT NULL AUTO_INCREMENT  COMMENT '流水ID',
-    event_key       VARCHAR(100)    NOT NULL UNIQUE          COMMENT '幂等键，见表注释的命名约定',
-    user_id         BIGINT          DEFAULT NULL             COMMENT '被调整的用户',
+    event_key       VARCHAR(100)    NOT NULL                 COMMENT '幂等键，见表注释的命名约定',
+    user_id         BIGINT          NOT NULL                 COMMENT '被调整的用户',
     previous_score  INT             NOT NULL                 COMMENT '调整前分数',
     resulting_score INT             NOT NULL                 COMMENT '调整后分数（已钳制到 0-100）',
     requested_delta INT             NOT NULL                 COMMENT '请求的增减值；因钳制，实际变化可能小于它',
     reason          VARCHAR(1000)   DEFAULT NULL             COMMENT '变更原因，展示给用户和管理员',
-    created_at      DATETIME(6)     DEFAULT NULL             COMMENT '发生时间',
+    create_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '发生时间',
     PRIMARY KEY (id),
+    UNIQUE KEY uk_credit_events_event_key (event_key),
+    KEY idx_credit_events_user_id (user_id),
     CONSTRAINT fk_credit_event_user FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='信用分变更流水';
 
@@ -74,7 +79,7 @@ CREATE TABLE credit_events (
 -- ----------------------------------------------------------------------------
 CREATE TABLE credit_recovery_runs (
     recovery_day    DATE            NOT NULL                 COMMENT '已执行恢复的日期',
-    version         BIGINT          DEFAULT NULL             COMMENT 'JPA 乐观锁版本号',
+    version         BIGINT          NOT NULL DEFAULT 0       COMMENT 'JPA 乐观锁版本号，插入时为 0',
     PRIMARY KEY (recovery_day)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='每日信用恢复执行记录';
 
@@ -94,5 +99,5 @@ CREATE TABLE verification_codes (
     used            TINYINT(1)      NOT NULL DEFAULT 0       COMMENT '是否已使用',
     create_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '生成时间',
     PRIMARY KEY (id),
-    KEY idx_verification_codes_lookup (phone, type, used)
+    KEY idx_verification_codes_phone_type_used (phone, type, used)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='验证码';

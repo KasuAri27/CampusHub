@@ -17,6 +17,10 @@
 --     避免 MySQL 8 默认的 utf8mb4_0900_ai_ci 混入导致跨表比较报错。
 --   * 业务时间统一按 Asia/Shanghai 解释；时间列为不带时区的 DATETIME(6)，
 --     由应用写入上海时间（JDBC 连接参数 serverTimezone=Asia/Shanghai）。
+--   * 记录创建/修改时间的列统一命名 create_time / update_time；
+--     其他业务时刻（accepted_at、paid_at 等）保留各自名称。
+--   * 索引命名：唯一索引 uk_<表名>_<列名...>，普通索引 idx_<表名>_<列名...>，
+--     列名按索引中的顺序用下划线连接；外键依赖的索引也显式命名，不让 MySQL 自动生成。
 --   * 布尔值统一 TINYINT(1)，0=否，1=是。
 --   * Java 枚举字段对应 MySQL ENUM；Java 字符串字段即使取值固定也用 VARCHAR，
 --     取值范围写在列注释中。
