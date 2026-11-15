@@ -11,7 +11,7 @@
 ## 2. 核心技术栈基准 (Technology Stack)
 - **前端**：`Vue 3 + Vite + Element Plus + Pinia + Vue Router`（面向桌面端的 Web SPA），严禁引入未获批的跨端框架或无关 UI 库。
 - **后端**：`Java 17 + Spring Boot 3.4.0 + Spring Data JPA + MySQL 8.0`（统一时区 `Asia/Shanghai`）。
-- **缓存与中间件状态**：当前**无 Redis 依赖**，JWT 维持纯无状态签名。未来扩展见 `TODO.md`。
+- **缓存与中间件状态**：已引入 `spring-boot-starter-data-redis`（Lettuce，连接走 `CAMPUSHUB_REDIS_*` 环境变量），**业务代码尚未使用 Redis**；JWT 维持纯无状态签名。缓存与分布式锁的落地范围见 `TODO.md`。
 - **本地环境优先级**：命令行、构建与环境工具优先检索并使用 `D:\Dev\` 目录下的可执行文件。
 
 ## 3. 待办事项管理 (TODO Discipline)
