@@ -22,6 +22,17 @@ spring:
         format_sql: true
     open-in-view: false
 
+  # Redis 连接由运行环境注入；默认指向本机 6379、无密码，仅适用于本地开发。
+  data:
+    redis:
+      host: ${CAMPUSHUB_REDIS_HOST:localhost}
+      port: ${CAMPUSHUB_REDIS_PORT:6379}
+      password: ${CAMPUSHUB_REDIS_PASSWORD:}
+      timeout: 2s
+      # 本项目仓库全部是 JPA；关闭 Redis 仓库扫描，避免对每个 JPA 仓库输出“无法确定存储归属”的提示。
+      repositories:
+        enabled: false
+
   jackson:
     time-zone: Asia/Shanghai
   servlet:
