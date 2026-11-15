@@ -44,7 +44,7 @@ spring:
       pool:
         size: 4
 
-  # ========== 新增邮件配置 ==========
+  # 验证码邮件发送；账号与授权码由运行环境注入。
   mail:
     host: smtp.exmail.qq.com         # 南大 smail SMTP 服务器
     port: 465
@@ -62,8 +62,8 @@ spring:
           ssl:
             enable: true
           socketFactory:
-            port:465
-            class:javax.net.ssl.SSLSocketFactory
+            port: 465
+            class: javax.net.ssl.SSLSocketFactory
           from: ${CAMPUSHUB_SMTP_USERNAME:}
 
 # JWT 身份验证安全配置
