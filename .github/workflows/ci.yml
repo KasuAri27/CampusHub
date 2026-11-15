@@ -11,7 +11,8 @@ permissions:
 
 concurrency:
   group: campushub-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # PR上新提交会取代旧运行；main上的运行不取消，保证每次合入都完整跑完全部检查。
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:
@@ -43,7 +44,18 @@ jobs:
         options: >-
           --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-only-password --silent"
           --health-interval=10s --health-timeout=5s --health-retries=12
+      # 仅供连通性检测使用的一次性实例，无密码、不持久化，不承载任何业务数据。
+      redis:
+        image: redis:8.0
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s --health-timeout=3s --health-retries=12
     env:
+      # 与应用运行时读取的是同一组变量；REQUIRED 让 RedisConnectivityTest 在CI中必须执行而不是跳过。
+      CAMPUSHUB_REDIS_HOST: 127.0.0.1
+      CAMPUSHUB_REDIS_PORT: '6379'
+      CAMPUSHUB_TEST_REDIS_REQUIRED: 'true'
       CAMPUSHUB_TEST_DB_URL: ${{ matrix.url }}
       CAMPUSHUB_TEST_DB_DRIVER: ${{ matrix.driver }}
       CAMPUSHUB_TEST_DB_USER: ${{ matrix.username }}
@@ -55,9 +67,21 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: 编译、测试、打包与核心覆盖率门槛
+      - name: 编译、全部测试（含Redis连通性检测）、打包与核心覆盖率门槛
         working-directory: backend
         run: mvn -B -ntp clean verify
+      # 条件化用例（如依赖外部服务的检测）在CI中必须真实执行；出现跳过即视为没有跑全。
+      - name: 确认后端用例全部执行、没有跳过
+        run: |
+          total=0; skipped=0
+          for report in backend/target/surefire-reports/TEST-*.xml; do
+            suite=$(grep -m1 -o '<testsuite [^>]*' "$report")
+            total=$((total + $(sed -E 's/.* tests="([0-9]+)".*/\1/' <<<"$suite")))
+            skipped=$((skipped + $(sed -E 's/.* skipped="([0-9]+)".*/\1/' <<<"$suite")))
+          done
+          echo "后端用例 $total 个，跳过 $skipped 个"
+          test "$total" -gt 0
+          test "$skipped" -eq 0
       - name: 在独立MySQL库验证全新建库、旧库升级及两者结构一致
         if: matrix.database == 'mysql'
         env:
@@ -116,14 +140,24 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: 严格安装锁定依赖
+        id: install
         working-directory: frontend
         run: npm ci
-      - name: 全文件检查、单元测试、生产构建
+      # 三项检查分步执行：前一项失败不会让后面的检查不运行，一次运行就能看到全部结果。
+      - name: 全文件检查
+        working-directory: frontend
+        run: npm run check
+      - name: 单元测试（不允许跳过用例）
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         working-directory: frontend
         run: |
-          npm run check
-          npm test
-          npm run build
+          set -o pipefail
+          npm test | tee "$RUNNER_TEMP/frontend-test.log"
+          grep -Eq 'skipped 0$' "$RUNNER_TEMP/frontend-test.log"
+      - name: 生产构建
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: frontend
+        run: npm run build
       - name: 保存前端构建产物
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
