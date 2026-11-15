@@ -13,4 +13,6 @@
 
 Windows 没有原生 Redis，本地开发可在 WSL 中运行；WSL 发行版空闲后会自动停止，启动后端前需保持其处于运行状态。
 
+Redis 连通性测试 `RedisConnectivityTest` 默认跳过；本机 Redis 已启动时，设置 `CAMPUSHUB_TEST_REDIS_REQUIRED=true` 再运行测试即可一并执行。CI 中该用例必须执行。
+
 测试配置使用独立的示例密钥。请在运行环境中配置实际凭据，不要将它们提交到仓库。
