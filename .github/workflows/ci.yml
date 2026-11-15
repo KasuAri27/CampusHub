@@ -63,7 +63,8 @@ jobs:
         env:
           MYSQL_CONTAINER_ID: ${{ job.services.mysql.id }}
         run: |
-          db() { docker exec -i "$MYSQL_CONTAINER_ID" mysql -uroot -pci-only-password "$@"; }
+          # 容器内没有区域设置，客户端默认按latin1发送脚本；必须显式指定utf8mb4，否则中文被误读，按显示宽度限长的约束会误判。
+          db() { docker exec -i "$MYSQL_CONTAINER_ID" mysql --default-character-set=utf8mb4 -uroot -pci-only-password "$@"; }
           strip_use() { sed '/^USE campushub;/d' "$1"; }
           db -e 'CREATE DATABASE campushub_migration_ci CHARACTER SET utf8mb4; CREATE DATABASE campushub_schema_ci CHARACTER SET utf8mb4;'
           # 旧库：旧结构 + 旧数据，迁移脚本各执行两次以验证可重复运行。
