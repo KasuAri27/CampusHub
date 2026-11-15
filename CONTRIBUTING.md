@@ -43,7 +43,7 @@ PR描述说明：问题和结果、涉及的信息流和状态迁移、验证命
 
 ## GitHub持续集成
 
-`.github/workflows/ci.yml` 在 `main`、`dev` 推送及所有PR上执行，没有路径过滤造成的CI配置漏检。
+`.github/workflows/ci.yml` 在 `main`、`SQL`、`user`、`admin`、`task`、`chat` 推送及所有PR上执行，没有路径过滤造成的CI配置漏检。
 
 检查项：`backend-h2`、`backend-mysql`、`frontend`。后端运行测试、打包及核心包60%行覆盖率门槛；前端运行全文件检查、单元测试和生产构建。失败时仍保存Surefire与JaCoCo报告。
 
