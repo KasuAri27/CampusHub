@@ -24,8 +24,9 @@ public class VerificationCode {
     @Column(nullable = false, length = 6)
     private String code;
 
-    @Column(nullable = false)
-    private String type;  // REGISTER, LOGIN, BIND
+    /** 用途：REGISTER（注册）或 LOGIN（验证码登录）；服务层只接受这两种取值。 */
+    @Column(nullable = false, length = 20)
+    private String type;
 
     @Column(nullable = false)
     private LocalDateTime expireTime;
