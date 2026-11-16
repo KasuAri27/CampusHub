@@ -183,6 +183,40 @@ class CommerceFlowIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("PAID"));
         assertThat(orders.findById(order).orElseThrow().getReviewEligibleAt()).isNotNull();
     }
+    /** 后台需求审核/删除改走 TaskService 后，真实过滤器与数据库下的状态前置、重复操作与审计保留规则。 */
+    @Test void adminTaskModerationGoesThroughDomainServiceWithStateGuards() throws Exception {
+        // 待审核需求：驳回成功并变成 cancelled，重复驳回与事后通过均被状态前置拒绝。
+        long rejected = response(mvc.perform(post("/v1/tasks").header("Authorization", token(requester)).contentType(MediaType.APPLICATION_JSON)
+                .content(validTask().toString())).andExpect(status().isCreated())).path("data").path("id").asLong();
+        mvc.perform(put("/v1/admin/tasks/{id}/reject", rejected).header("Authorization", token(admin)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"描述不清\"}")).andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("cancelled"));
+        mvc.perform(put("/v1/admin/tasks/{id}/reject", rejected).header("Authorization", token(admin))).andExpect(status().isBadRequest());
+        mvc.perform(put("/v1/admin/tasks/{id}/approve", rejected).header("Authorization", token(admin))).andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notifications WHERE receiver_id = ? AND type = 'TASK_REVIEW_RESULT' AND content LIKE '%描述不清%'",
+                Integer.class, requester.getId())).isEqualTo(1);
+
+        // 已通过的需求：重复通过被拒，不会重复发审核通知；发布时间取业务时钟。
+        long approved = publish(validTask());
+        mvc.perform(put("/v1/admin/tasks/{id}/approve", approved).header("Authorization", token(admin))).andExpect(status().isBadRequest());
+        mvc.perform(put("/v1/admin/tasks/{id}/reject", approved).header("Authorization", token(admin))).andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notifications WHERE receiver_id = ? AND content LIKE '%已通过审核%'",
+                Integer.class, requester.getId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT published_at FROM tasks WHERE id = ?", java.sql.Timestamp.class, approved).toLocalDateTime())
+                .isEqualTo(start);
+
+        // 已有带金额快照订单：不得物理删除，需求与订单原样保留。
+        accept(approved, provider);
+        mvc.perform(delete("/v1/admin/tasks/{id}", approved).header("Authorization", token(admin))).andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM tasks WHERE id = ?", Integer.class, approved)).isEqualTo(1);
+        assertThat(orders.findByTaskId(approved)).hasSize(1);
+
+        // 没有订单的需求可以删除；非管理员不能走后台入口。
+        mvc.perform(delete("/v1/admin/tasks/{id}", rejected).header("Authorization", token(requester))).andExpect(status().isForbidden());
+        mvc.perform(delete("/v1/admin/tasks/{id}", rejected).header("Authorization", token(admin))).andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM tasks WHERE id = ?", Integer.class, rejected)).isZero();
+        mvc.perform(delete("/v1/admin/tasks/{id}", rejected).header("Authorization", token(admin))).andExpect(status().isNotFound());
+    }
+
     @Test void unpaidDebtDeductsExactlyOnceThenAdministratorCanApplyAuditedPenalty() throws Exception {
         long order = acceptedService(); clock.set(start.plusHours(1));
         lifecycle.processDeadline(order); lifecycle.processDeadline(order);
