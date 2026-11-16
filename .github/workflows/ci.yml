@@ -1,4 +1,16 @@
 # GitHub 是当前协作仓库；这里实际执行检查，不依赖不会在 GitHub 运行的 GitLab 配置。
+#
+# 结构：
+#   changes        判断本次改动落在哪些范围（规则见 .github/scripts/detect-changes.sh）。
+#   backend-*      后端业务测试；frontend 前端检查；sql-schema 建库与升级脚本互相比对；
+#   entity-schema  实体与建表脚本一致性。四类检查互相独立，一类失败不影响其余的结果。
+#   ci-gate        汇总闸门，任何一项失败即失败。
+#
+# 每个任务每次都会启动并上报结果，只是在改动与自己无关时跳过内部步骤、直接通过。
+# 不在任务一级跳过，是因为被跳过的矩阵任务不会生成 backend-h2 / backend-mysql 这样的检查名，
+# 规则集里按名字要求的必需检查会永远等不到结果，合并请求会被卡住。
+#
+# 校验逻辑都在 .github/scripts/ 下，CI 和本机运行同一份脚本；新增升级脚本、建表脚本不需要改本文件。
 name: CampusHub CI
 on:
   push:
@@ -15,8 +27,34 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.detect.outputs.backend }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+      sql: ${{ steps.detect.outputs.sql }}
+      entity_schema: ${{ steps.detect.outputs.entity_schema }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # 对比改动需要完整历史，默认只取一个提交。
+          fetch-depth: 0
+      - name: 判断改动范围
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          bash .github/scripts/detect-changes.sh
+          cat "$GITHUB_OUTPUT"
+
   backend:
     name: backend-${{ matrix.database }}
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -52,6 +90,7 @@ jobs:
           --health-cmd="redis-cli ping"
           --health-interval=5s --health-timeout=3s --health-retries=12
     env:
+      RUN: ${{ needs.changes.outputs.backend }}
       # 与应用运行时读取的是同一组变量；REQUIRED 让 RedisConnectivityTest 在CI中必须执行而不是跳过。
       CAMPUSHUB_REDIS_HOST: 127.0.0.1
       CAMPUSHUB_REDIS_PORT: '6379'
@@ -61,17 +100,24 @@ jobs:
       CAMPUSHUB_TEST_DB_USER: ${{ matrix.username }}
       CAMPUSHUB_TEST_DB_PASSWORD: ${{ matrix.password }}
     steps:
+      - name: 本次改动不涉及后端，跳过
+        if: env.RUN != 'true'
+        run: echo "backend/ 下没有改动，后端业务测试不执行。"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.RUN == 'true'
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        if: env.RUN == 'true'
         with:
           distribution: temurin
           java-version: '17'
           cache: maven
       - name: 编译、全部测试（含Redis连通性检测）、打包与核心覆盖率门槛
+        if: env.RUN == 'true'
         working-directory: backend
         run: mvn -B -ntp clean verify
       # 条件化用例（如依赖外部服务的检测）在CI中必须真实执行；出现跳过即视为没有跑全。
       - name: 确认后端用例全部执行、没有跳过
+        if: env.RUN == 'true'
         run: |
           total=0; skipped=0
           for report in backend/target/surefire-reports/TEST-*.xml; do
@@ -83,7 +129,7 @@ jobs:
           test "$total" -gt 0
           test "$skipped" -eq 0
       - name: 保存失败报告与覆盖率
-        if: always()
+        if: always() && env.RUN == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: backend-reports-${{ matrix.database }}
@@ -92,7 +138,7 @@ jobs:
             backend/target/site/jacoco/
           retention-days: 14
       - name: 保存可部署程序
-        if: success() && matrix.database == 'mysql'
+        if: success() && env.RUN == 'true' && matrix.database == 'mysql'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: backend-jar
@@ -101,21 +147,31 @@ jobs:
 
   frontend:
     name: frontend
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      RUN: ${{ needs.changes.outputs.frontend }}
     steps:
+      - name: 本次改动不涉及前端，跳过
+        if: env.RUN != 'true'
+        run: echo "frontend/ 下没有改动，前端检查不执行。"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.RUN == 'true'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: env.RUN == 'true'
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: 严格安装锁定依赖
         id: install
+        if: env.RUN == 'true'
         working-directory: frontend
         run: npm ci
       # 三项检查分步执行：前一项失败不会让后面的检查不运行，一次运行就能看到全部结果。
       - name: 全文件检查
+        if: env.RUN == 'true'
         working-directory: frontend
         run: npm run check
       - name: 单元测试（不允许跳过用例）
@@ -130,8 +186,100 @@ jobs:
         working-directory: frontend
         run: npm run build
       - name: 保存前端构建产物
+        if: success() && env.RUN == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: frontend-dist
           path: frontend/dist/
           retention-days: 7
+
+  # 建库脚本与升级脚本互相比对：全新建库、旧库逐个升级，两条路径的结构必须一致。
+  sql-schema:
+    name: sql-schema
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUN: ${{ needs.changes.outputs.sql }}
+    # 仅用于结构校验的一次性实例，绝不使用生产连接与密钥。
+    # 不设 MYSQL_DATABASE：校验库由脚本自己删除并重建。
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-password
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-only-password --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - name: 本次改动不涉及数据库脚本，跳过
+        if: env.RUN != 'true'
+        run: echo "backend/SQL/ 及结构比对资源没有改动，结构校验不执行。"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.RUN == 'true'
+      - name: 全新建库与旧库升级结构一致
+        if: env.RUN == 'true'
+        env:
+          MYSQL_CMD: docker exec -i ${{ job.services.mysql.id }} mysql --default-character-set=utf8mb4 -uroot -pci-only-password
+        run: bash .github/scripts/check-sql-schema.sh
+
+  # 实体与建表脚本一致性：用建表脚本建库，后端以 ddl-auto=validate 启动。
+  # 业务测试的库由实体直接生成，发现不了“实体改了、脚本没跟上”，所以单独设一项检查。
+  entity-schema:
+    name: entity-schema
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUN: ${{ needs.changes.outputs.entity_schema }}
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-password
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-only-password --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - name: 本次改动不涉及实体或数据库脚本，跳过
+        if: env.RUN != 'true'
+        run: echo "后端主代码与 backend/SQL/ 都没有改动，一致性检查不执行。"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.RUN == 'true'
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        if: env.RUN == 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      # 这里只需要可执行包；测试由 backend 任务负责，不重复跑。
+      - name: 打包后端（不跑测试）
+        if: env.RUN == 'true'
+        working-directory: backend
+        run: mvn -B -ntp -DskipTests package
+      - name: 后端在校验模式下连接脚本建出的库启动
+        if: env.RUN == 'true'
+        env:
+          MYSQL_CMD: docker exec -i ${{ job.services.mysql.id }} mysql --default-character-set=utf8mb4 -uroot -pci-only-password
+          JDBC_URL: jdbc:mysql://127.0.0.1:3306/campushub_validate_ci?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&sslMode=DISABLED
+          DB_USER: root
+          DB_PASSWORD: ci-only-password
+        run: bash .github/scripts/check-entity-schema.sh
+
+  # 汇总闸门：规则集只需要求这一项，今后增删、改名其他检查都不用再动规则集。
+  ci-gate:
+    name: ci-gate
+    if: always()
+    needs: [changes, backend, frontend, sql-schema, entity-schema]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 任何一项失败、取消或未运行即失败
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS"
+          # 各任务每次都会运行（无关时只跳过内部步骤），所以这里出现 skipped 说明上游出错，同样算失败。
+          ! grep -Eq '"result": *"(failure|cancelled|skipped)"' <<<"$RESULTS"
