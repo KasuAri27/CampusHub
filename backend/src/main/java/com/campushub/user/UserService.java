@@ -155,6 +155,23 @@ public class UserService implements UserDetailsService {
         userRepository.save(user);
     }
 
+    /**
+     * 封禁/解封切换：账号状态的唯一写入口，供管理端调用（K1：admin 不得直接改 User.status）。
+     * 通过 {@link UserRepository#findLockedById} 取悲观写锁后再读后写，
+     * 两个管理员同时点击同一账号时第二个请求会看到第一个的结果，不会各自读到旧值后互相覆盖。
+     * 调用方须自带事务（admin 的事务会被本方法加入）；管理员身份校验由调用方负责，本方法不判断操作者。
+     * 不改动信用分和订单；封禁后的受限登录规则见 {@link #responseFor}。
+     *
+     * @return 切换后的状态：1=正常，0=封禁
+     */
+    @Transactional
+    public int toggleStatus(Long userId) {
+        User target = userRepository.findLockedById(userId)
+                .orElseThrow(() -> new BusinessException(404, "目标用户不存在"));
+        target.setStatus(target.getStatus() != null && target.getStatus() == 1 ? 0 : 1);
+        return target.getStatus();
+    }
+
     @Override
     public UserDetails loadUserByUsername(String studentId) throws UsernameNotFoundException {
         User user = userRepository.findByStudentId(studentId)
