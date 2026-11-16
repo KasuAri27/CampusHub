@@ -43,9 +43,174 @@ class TaskServiceTest {
     private UserRepository userRepository;
     @Mock
     private com.campushub.notification.NotificationService notificationService;
+    @Mock
+    private com.campushub.chat.service.ChatIntegrationService chatIntegrationService;
+    @Mock
+    private com.campushub.order.OrderRepository orderRepository;
+    @Mock
+    private com.campushub.review.ReviewRepository reviewRepository;
+    @Mock
+    private com.campushub.complaint.ComplaintRepository complaintRepository;
+    @Mock
+    private com.campushub.payment.PaymentAttemptRepository paymentAttempts;
 
     @InjectMocks
     private TaskService taskService;
+
+    /** 固定业务时钟：2026-11-16 09:30（Asia/Shanghai），用于断言 publishedAt 不依赖 JVM 时区。 */
+    private static final java.time.Clock FIXED_CLOCK = java.time.Clock.fixed(
+            java.time.Instant.parse("2026-11-16T01:30:00Z"), java.time.ZoneId.of("Asia/Shanghai"));
+
+    @org.junit.jupiter.api.BeforeEach
+    void injectClock() {
+        // Clock 是抽象类型，构造器注入拿不到 Mockito mock，这里显式注入固定时钟。
+        org.springframework.test.util.ReflectionTestUtils.setField(taskService, "clock", FIXED_CLOCK);
+    }
+
+    @Test
+    void approveByAdminLocksTaskPublishesAtBusinessTimeAndNotifies() {
+        User requester = user(1L, Role.user);
+        Task task = task(10L, requester, TaskStatus.pending_review, category(3, true));
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
+
+        Task result = taskService.approveByAdmin(10L);
+
+        assertThat(result.getStatus()).isEqualTo(TaskStatus.published);
+        assertThat(result.getPublishedAt()).isEqualTo(LocalDateTime.of(2026, 11, 16, 9, 30));
+        verify(taskRepository).save(task);
+        verify(chatIntegrationService, never()).createTeamGroup(any());
+        verify(notificationService).createNotification(
+                org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq("需求审核结果"),
+                org.mockito.ArgumentMatchers.contains("已通过审核"), org.mockito.ArgumentMatchers.eq("TASK_REVIEW_RESULT"));
+    }
+
+    @Test
+    void approveByAdminCreatesTeamGroupForTeamingTask() {
+        User requester = user(1L, Role.user);
+        TeamingTask team = new TeamingTask();
+        team.setId(11L);
+        team.setRequester(requester);
+        team.setTitle("组队参加比赛");
+        team.setStatus(TaskStatus.pending_review);
+        when(taskRepository.findLockedById(11L)).thenReturn(Optional.of(team));
+
+        taskService.approveByAdmin(11L);
+
+        verify(chatIntegrationService).createTeamGroup(team);
+    }
+
+    @Test
+    void approveByAdminRejectsTaskThatIsNoLongerPendingReview() {
+        // 第二名管理员在第一名之后拿到锁，读到 published，必须被拒绝而不是重复建群/通知。
+        Task task = task(10L, user(1L, Role.user), TaskStatus.published, category(3, true));
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
+
+        assertThatThrownBy(() -> taskService.approveByAdmin(10L))
+                .isInstanceOf(BusinessException.class).hasMessage("仅待审核状态的需求可以审核通过");
+
+        verify(taskRepository, never()).save(any());
+        verify(chatIntegrationService, never()).createTeamGroup(any());
+        verify(notificationService, never()).createNotification(any(), any(), any(), any());
+    }
+
+    @Test
+    void approveByAdminReturns404WhenTaskMissing() {
+        when(taskRepository.findLockedById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> taskService.approveByAdmin(99L))
+                .isInstanceOf(BusinessException.class).hasMessage("需求不存在");
+    }
+
+    @Test
+    void rejectByAdminCancelsAndAppendsReasonToNotification() {
+        Task task = task(10L, user(1L, Role.user), TaskStatus.pending_review, category(3, true));
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
+
+        taskService.rejectByAdmin(10L, "描述不清");
+
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.cancelled);
+        verify(notificationService).createNotification(
+                org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq("需求审核结果"),
+                org.mockito.ArgumentMatchers.argThat(c -> c.contains("已被驳回") && c.contains("驳回理由：描述不清")),
+                org.mockito.ArgumentMatchers.eq("TASK_REVIEW_RESULT"));
+    }
+
+    @Test
+    void rejectByAdminRefusesAlreadyApprovedTask() {
+        // 已通过的需求不能被后到的驳回请求覆盖成 cancelled（丢失更新）。
+        Task task = task(10L, user(1L, Role.user), TaskStatus.published, category(3, true));
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
+
+        assertThatThrownBy(() -> taskService.rejectByAdmin(10L, "x"))
+                .isInstanceOf(BusinessException.class).hasMessage("仅待审核状态的需求可以驳回");
+
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.published);
+        verify(notificationService, never()).createNotification(any(), any(), any(), any());
+    }
+
+    @Test
+    void deleteByAdminLocksTaskBeforeReadingOrdersThenCascades() {
+        Task task = task(10L, user(1L, Role.user), TaskStatus.cancelled, category(3, true));
+        com.campushub.order.Order legacy = legacyOrder(20L);
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
+        when(orderRepository.findByTaskId(10L)).thenReturn(List.of(legacy));
+        when(complaintRepository.findByOrderId(20L)).thenReturn(List.of());
+        when(paymentAttempts.existsByOrderId(20L)).thenReturn(false);
+
+        taskService.deleteByAdmin(10L);
+
+        var inOrder = org.mockito.Mockito.inOrder(taskRepository, orderRepository, reviewRepository);
+        inOrder.verify(taskRepository).findLockedById(10L);
+        inOrder.verify(orderRepository).findByTaskId(10L);
+        inOrder.verify(reviewRepository).deleteByOrder_Id(20L);
+        inOrder.verify(orderRepository).delete(legacy);
+        inOrder.verify(taskRepository).deleteById(10L);
+    }
+
+    @Test
+    void deleteByAdminKeepsOrdersWithAmountSnapshot() {
+        Task task = task(10L, user(1L, Role.user), TaskStatus.in_progress, category(3, true));
+        com.campushub.order.Order priced = legacyOrder(20L);
+        priced.setAmountDue(new BigDecimal("6.50"));
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
+        when(orderRepository.findByTaskId(10L)).thenReturn(List.of(priced));
+
+        assertThatThrownBy(() -> taskService.deleteByAdmin(10L))
+                .isInstanceOf(BusinessException.class).extracting("code").isEqualTo(409);
+
+        verify(orderRepository, never()).delete(any(com.campushub.order.Order.class));
+        verify(taskRepository, never()).deleteById(any());
+    }
+
+    @Test
+    void deleteByAdminReturns409InsteadOfForeignKeyErrorWhenLegacyOrderHasComplaint() {
+        Task task = task(10L, user(1L, Role.user), TaskStatus.cancelled, category(3, true));
+        com.campushub.order.Order legacy = legacyOrder(20L);
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
+        when(orderRepository.findByTaskId(10L)).thenReturn(List.of(legacy));
+        when(complaintRepository.findByOrderId(20L)).thenReturn(List.of(new com.campushub.complaint.Complaint()));
+
+        assertThatThrownBy(() -> taskService.deleteByAdmin(10L))
+                .isInstanceOf(BusinessException.class).extracting("code").isEqualTo(409);
+
+        verify(reviewRepository, never()).deleteByOrder_Id(any());
+        verify(taskRepository, never()).deleteById(any());
+    }
+
+    @Test
+    void deleteByAdminReturns404WhenTaskMissing() {
+        when(taskRepository.findLockedById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> taskService.deleteByAdmin(99L))
+                .isInstanceOf(BusinessException.class).extracting("code").isEqualTo(404);
+    }
+
+    /** 无金额快照的历史订单（amountDue 为空），管理员清理需求时允许级联删除。 */
+    private static com.campushub.order.Order legacyOrder(Long id) {
+        com.campushub.order.Order order = new com.campushub.order.Order();
+        order.setId(id);
+        return order;
+    }
 
     @Test
     void createTaskAllowsRequesterAndReturnsDto() {

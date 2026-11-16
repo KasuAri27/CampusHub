@@ -6,8 +6,11 @@ import com.campushub.chat.service.ChatIntegrationService;
 import com.campushub.common.BusinessException;
 import com.campushub.common.PageResult;
 import com.campushub.common.PageResult.Pagination;
-import com.campushub.notification.Notification;
-import com.campushub.notification.NotificationRepository;
+import com.campushub.complaint.ComplaintRepository;
+import com.campushub.order.Order;
+import com.campushub.order.OrderRepository;
+import com.campushub.payment.PaymentAttemptRepository;
+import com.campushub.review.ReviewRepository;
 import com.campushub.task.Task.TaskStatus;
 import com.campushub.user.User;
 import com.campushub.user.User.Role;
@@ -24,6 +27,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -39,6 +44,13 @@ public class TaskService {
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
     private final com.campushub.notification.NotificationService notificationService;
+    private final ChatIntegrationService chatIntegrationService;
+    private final OrderRepository orderRepository;
+    private final ReviewRepository reviewRepository;
+    private final ComplaintRepository complaintRepository;
+    private final PaymentAttemptRepository paymentAttempts;
+    /** 业务时钟（Asia/Shanghai）；发布时间不得再取 JVM 默认时区。 */
+    private final Clock clock;
 
     /**
      * 创建需求业务流程：
@@ -254,6 +266,91 @@ public class TaskService {
         // 有接单历史时仅下架，保留订单引用与后续财务审计；无历史的新任务仍可删除。
         if (taskRepository.countOrders(taskId) > 0) task.setStatus(TaskStatus.cancelled);
         else taskRepository.delete(task);
+    }
+
+    /**
+     * 管理员审核通过需求（pending_review → published）。
+     * 前置：调用方（AdminService）已确认操作人是有效管理员，本方法不再识别身份。
+     * 并发：先对任务加悲观写锁再判状态，两名管理员同时点击时只有一人能迁移成功，
+     * 另一人读到 published 后得到 400，不会重复创建组队群或重复通知（锁顺序与 OrderService 的“任务→订单”一致）。
+     * 时间：publishedAt 取业务时钟，列表按它倒序，不能随 JVM 时区漂移。
+     *
+     * @return 已迁移的需求实体，供后台在同一事务内组装展示 DTO
+     */
+    @Transactional
+    public Task approveByAdmin(Long taskId) {
+        Task task = taskRepository.findLockedById(taskId)
+                .orElseThrow(() -> new BusinessException(404, "需求不存在"));
+        if (task.getStatus() != TaskStatus.pending_review) {
+            throw new BusinessException(400, "仅待审核状态的需求可以审核通过");
+        }
+        task.setStatus(TaskStatus.published);
+        task.setPublishedAt(LocalDateTime.now(clock));
+        taskRepository.save(task);
+
+        // 组队需求通过审核后才建群；与状态迁移同事务，建群失败则整体回滚，不会出现已发布却无群。
+        if (task instanceof TeamingTask) {
+            chatIntegrationService.createTeamGroup(task);
+        }
+        notifyReviewResult(task, true, null);
+        return task;
+    }
+
+    /**
+     * 管理员驳回需求（pending_review → cancelled）。
+     * 驳回暂以 cancelled 终态表示（独立 rejected 状态见 TODO §1.1，未批准前不新增）；
+     * 加锁与状态前置判断同 {@link #approveByAdmin}，避免“已通过又被驳回”的丢失更新。
+     */
+    @Transactional
+    public Task rejectByAdmin(Long taskId, String reason) {
+        Task task = taskRepository.findLockedById(taskId)
+                .orElseThrow(() -> new BusinessException(404, "需求不存在"));
+        if (task.getStatus() != TaskStatus.pending_review) {
+            throw new BusinessException(400, "仅待审核状态的需求可以驳回");
+        }
+        task.setStatus(TaskStatus.cancelled);
+        taskRepository.save(task);
+        notifyReviewResult(task, false, reason);
+        return task;
+    }
+
+    /**
+     * 管理员物理删除需求，级联清理评价 → 订单 → 需求。
+     * 锁顺序：先锁任务再读订单（“任务→订单”），这样与接单（OrderService.acceptTask 同样先锁任务）互斥：
+     * 不会出现管理员刚判定“无订单”、接单事务随后插入订单，最终外键报错或订单失去需求的情况。
+     * 保留规则：
+     * 1. 有金额快照（amountDue 非空）的订单涉及财务与争议审计，一律拒绝删除；
+     * 2. 旧订单（amountDue 为空）若已被投诉或登记过支付单，外键会使删除失败，
+     *    这里提前返回 409，而不是让数据库约束冲突冒成 500。
+     */
+    @Transactional
+    public void deleteByAdmin(Long taskId) {
+        taskRepository.findLockedById(taskId)
+                .orElseThrow(() -> new BusinessException(404, "需求不存在"));
+        List<Order> orders = orderRepository.findByTaskId(taskId);
+        if (orders.stream().anyMatch(o -> o.getAmountDue() != null)) {
+            throw new BusinessException(409, "任务已有新业务订单，须保留财务和争议审计记录，不能物理删除");
+        }
+        for (Order o : orders) {
+            if (!complaintRepository.findByOrderId(o.getId()).isEmpty()
+                    || paymentAttempts.existsByOrderId(o.getId())) {
+                throw new BusinessException(409, "任务的历史订单已有投诉或支付记录，须保留审计记录，不能物理删除");
+            }
+        }
+        for (Order o : orders) {
+            reviewRepository.deleteByOrder_Id(o.getId());
+            orderRepository.delete(o);
+        }
+        taskRepository.deleteById(taskId);
+    }
+
+    /** 审核结果通知发布者；类型固定 TASK_REVIEW_RESULT，驳回理由非空时附带。 */
+    private void notifyReviewResult(Task task, boolean approved, String reason) {
+        String content = "你的需求「" + task.getTitle() + "」" + (approved ? "已通过审核" : "已被驳回") + "。";
+        if (reason != null && !reason.isBlank()) {
+            content += "\n驳回理由：" + reason;
+        }
+        notificationService.createNotification(task.getRequester().getId(), "需求审核结果", content, "TASK_REVIEW_RESULT");
     }
 
     private Sort buildSort(String sortBy) {

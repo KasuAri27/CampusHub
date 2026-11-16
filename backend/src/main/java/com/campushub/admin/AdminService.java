@@ -9,7 +9,6 @@ import com.campushub.chat.entity.Message;
 import com.campushub.chat.repository.ConversationMemberRepository;
 import com.campushub.chat.repository.ConversationRepository;
 import com.campushub.chat.repository.MessageRepository;
-import com.campushub.chat.service.ChatIntegrationService;
 import com.campushub.common.BusinessException;
 import com.campushub.common.PageResult;
 import com.campushub.notification.Notification;
@@ -17,7 +16,7 @@ import com.campushub.notification.NotificationRepository;
 import com.campushub.order.OrderRepository;
 import com.campushub.review.ReviewRepository;
 import com.campushub.task.Task;
-import com.campushub.task.Task.TaskStatus;
+import com.campushub.task.TaskService;
 import com.campushub.task.TaskRepository;
 import com.campushub.task.TeamingTask;
 import com.campushub.user.User;
@@ -51,7 +50,7 @@ public class AdminService {
     private final NotificationRepository notificationRepository;
     private final OrderRepository orderRepository;
     private final ReviewRepository reviewRepository;
-    private final ChatIntegrationService chatIntegrationService;
+    private final TaskService taskService;
     private final ConversationRepository conversationRepository;
     private final ConversationMemberRepository conversationMemberRepository;
     private final MessageRepository messageRepository;
@@ -227,80 +226,27 @@ public class AdminService {
     }
 
     /**
-     * 物理删除需求前，强制校验是否有非零金额订单或已产生付款凭证的订单；
-     * 存在资金流转的订单必须保留财务与争议审计记录，不可物理擦除。
+     * 管理员物理删除需求。后台只负责确认操作人是管理员，需求、订单、评价的删除规则与加锁顺序
+     * 由 {@link TaskService#deleteByAdmin} 统一裁决，AdminService 不再直接写这三张表。
      */
     @Transactional
     public void deleteTask(Long adminUserId, Long taskId) {
         requireAdmin(adminUserId);
-        if (!taskRepository.existsById(taskId)) {
-            throw new BusinessException(404, "需求不存在");
-        }
-        if (orderRepository.findByTaskId(taskId).stream().anyMatch(o -> o.getAmountDue() != null))
-            throw new BusinessException(409, "任务已有新业务订单，须保留财务和争议审计记录，不能物理删除");
-        // 管理员删除需求时级联删除评价 → 订单 → 需求
-        orderRepository.findByTaskId(taskId).forEach(o -> {
-            reviewRepository.deleteByOrder_Id(o.getId());
-            orderRepository.delete(o);
-        });
-        taskRepository.deleteById(taskId);
+        taskService.deleteByAdmin(taskId);
     }
 
-    /** 审核通过需求；若为组队任务（TeamingTask），自动联动聊天模块创建专属协作群。 */
+    /** 审核通过需求；状态迁移、组队群创建与通知均在 TaskService 同一事务内完成，这里只做鉴权与展示组装。 */
     @Transactional
     public TaskManagementDTO approveTask(Long adminUserId, Long taskId) {
         requireAdmin(adminUserId);
-        Task task = taskRepository.findById(taskId)
-                .orElseThrow(() -> new BusinessException(404, "需求不存在"));
-        if (task.getStatus() != TaskStatus.pending_review) {
-            throw new BusinessException(400, "仅待审核状态的需求可以审核通过");
-        }
-        task.setStatus(TaskStatus.published);
-        task.setPublishedAt(LocalDateTime.now());
-        taskRepository.save(task);
-
-        if (task instanceof TeamingTask) {
-            chatIntegrationService.createTeamGroup(task);
-        }
-
-        notifyRequester(task, "approved");
-
-        return toTaskDTO(task);
+        return toTaskDTO(taskService.approveByAdmin(taskId));
     }
 
+    /** 驳回待审需求；终态迁移与驳回通知由 TaskService 负责。 */
     @Transactional
     public TaskManagementDTO rejectTask(Long adminUserId, Long taskId, String reason) {
         requireAdmin(adminUserId);
-        Task task = taskRepository.findById(taskId)
-                .orElseThrow(() -> new BusinessException(404, "需求不存在"));
-        if (task.getStatus() != TaskStatus.pending_review) {
-            throw new BusinessException(400, "仅待审核状态的需求可以驳回");
-        }
-        task.setStatus(TaskStatus.cancelled);
-        taskRepository.save(task);
-
-        notifyRequester(task, "rejected", reason);
-
-        return toTaskDTO(task);
-    }
-
-    private void notifyRequester(Task task, String action, String reason) {
-        String title = "需求审核结果";
-        String verb = "approved".equals(action) ? "已通过审核" : "已被驳回";
-        String content = "你的需求「" + task.getTitle() + "」" + verb + "。";
-        if (reason != null && !reason.isBlank()) {
-            content += "\n驳回理由：" + reason;
-        }
-        Notification n = new Notification();
-        n.setReceiverId(task.getRequester().getId());
-        n.setTitle(title);
-        n.setContent(content);
-        n.setType("TASK_REVIEW_RESULT");
-        notificationService.createNotification(n.getReceiverId(), n.getTitle(), n.getContent(), n.getType());
-    }
-
-    private void notifyRequester(Task task, String action) {
-        notifyRequester(task, action, null);
+        return toTaskDTO(taskService.rejectByAdmin(taskId, reason));
     }
 
     // ==================== 分类管理 ====================
