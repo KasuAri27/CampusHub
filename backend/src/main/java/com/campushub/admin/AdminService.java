@@ -167,21 +167,33 @@ public class AdminService {
      * 管理员调整信用分。分数写入、行锁、[0,100] 钳制与 CreditEvent 审计流水统一由
      * {@link CreditService#adjust} 负责，后台不再直接 setCreditScore。
      * 在 100 分时继续上调不再报 400，而是钳制后记一条流水（2026-11 用户确认的规则）。
-     * 幂等键：当前每次调用由服务端生成 UUID，保证每次人工调整都落一条独立流水，
-     * 因而尚不具备“重复提交不重复扣分”的能力；可选 operationId 须待契约修订批准后接入。
+     * 幂等键：eventKey = {@code admin:{targetUserId}:{operationId}}（模块契约 §3.2）。
+     * 客户端带 operationId 时，同一编号重复提交只扣一次且不重复通知；同编号但参数不一致由
+     * CreditService 抛 409。未带时服务端生成 UUID，每次调用都是独立流水（无幂等保护，与旧行为一致）。
      * 降至70分以下时触发权限限制警告，通知用户发单受限。
      * 事务内先锁用户（CreditService 内 findLockedById）再写流水，与其他信用分写入口的锁顺序一致。
+     *
+     * @param operationId 可选的客户端操作编号，仅允许字母、数字、下划线、连字符，长度 ≤36
      */
     @Transactional
-    public void adjustCredit(Long adminUserId, Long targetUserId, int delta) {
+    public void adjustCredit(Long adminUserId, Long targetUserId, int delta, String operationId) {
         User admin = requireAdmin(adminUserId);
+        String opId = (operationId == null || operationId.isBlank()) ? UUID.randomUUID().toString() : operationId;
+        // 校验放在写入之前；eventKey 列为 VARCHAR(100)，编号上限 36 保证拼接后不超长
+        if (!opId.matches("[A-Za-z0-9_-]{1,36}")) {
+            throw new BusinessException(400, "operationId 只能包含字母、数字、下划线和连字符，且不超过36个字符");
+        }
         // 保留原有的"目标用户不存在"文案；仅作存在性校验，写入仍由 CreditService 加锁完成
         userRepository.findById(targetUserId)
                 .orElseThrow(() -> new BusinessException(404, "目标用户不存在"));
         String adminName = admin.getName();
-        String eventKey = "admin:" + targetUserId + ":" + UUID.randomUUID();
-        creditService.adjust(targetUserId, delta, eventKey,
+        String eventKey = "admin:" + targetUserId + ":" + opId;
+        boolean applied = creditService.adjust(targetUserId, delta, eventKey,
                 "管理员 " + adminName + " 调整信用分 " + (delta >= 0 ? "+" : "") + delta);
+        // 重复提交：分数与通知在首次调用时已处理，直接按成功返回
+        if (!applied) {
+            return;
+        }
         // 同一事务内读回已更新实体，取调整后的分数用于通知文案
         int newScore = userRepository.findById(targetUserId).map(User::getCreditScore).orElse(0);
 

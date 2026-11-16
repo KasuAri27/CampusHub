@@ -58,7 +58,7 @@ public class AdminController {
     @PutMapping("/users/{id}/credit")
     public ApiResponse<Void> adjustCredit(@PathVariable Long id,
                                            @RequestBody CreditAdjustRequest req) {
-        adminService.adjustCredit(UserContext.getCurrentUserId(), id, req.getDelta());
+        adminService.adjustCredit(UserContext.getCurrentUserId(), id, req.getDelta(), req.getOperationId());
         return ApiResponse.success("信用分调整成功", null);
     }
 

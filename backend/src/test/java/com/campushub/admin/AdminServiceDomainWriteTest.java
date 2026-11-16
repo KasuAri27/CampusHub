@@ -41,6 +41,8 @@ class AdminServiceDomainWriteTest {
                 userService, creditService, null, null, null, notifications);
         admin = user(1, User.Role.admin);
         when(users.findById(1L)).thenReturn(Optional.of(admin));
+        // 默认视为首次生效；重复提交场景在对应用例里单独改成 false
+        when(creditService.adjust(anyLong(), anyInt(), anyString(), anyString())).thenReturn(true);
     }
 
     @Test
@@ -67,8 +69,8 @@ class AdminServiceDomainWriteTest {
         target.setCreditScore(60);
         when(users.findById(7L)).thenReturn(Optional.of(target));
 
-        service.adjustCredit(1L, 7L, -10);
-        service.adjustCredit(1L, 7L, -10);
+        service.adjustCredit(1L, 7L, -10, null);
+        service.adjustCredit(1L, 7L, -10, "  ");
 
         ArgumentCaptor<String> keys = ArgumentCaptor.forClass(String.class);
         verify(creditService, org.mockito.Mockito.times(2))
@@ -86,7 +88,7 @@ class AdminServiceDomainWriteTest {
         target.setCreditScore(100);
         when(users.findById(7L)).thenReturn(Optional.of(target));
 
-        service.adjustCredit(1L, 7L, 5);
+        service.adjustCredit(1L, 7L, 5, null);
 
         verify(creditService).adjust(eq(7L), eq(5), anyString(), anyString());
     }
@@ -97,7 +99,7 @@ class AdminServiceDomainWriteTest {
         target.setCreditScore(65);
         when(users.findById(7L)).thenReturn(Optional.of(target));
 
-        service.adjustCredit(1L, 7L, -10);
+        service.adjustCredit(1L, 7L, -10, null);
 
         // 调整后分数由 CreditService 写入同一实体；此处 mock 不改实体，只验证 CREDIT_CHANGE 必发
         verify(notifications).createNotification(eq(7L), anyString(), anyString(), eq("CREDIT_CHANGE"));
@@ -107,8 +109,39 @@ class AdminServiceDomainWriteTest {
     void missingTargetIs404() {
         when(users.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.adjustCredit(1L, 99L, 5))
+        assertThatThrownBy(() -> service.adjustCredit(1L, 99L, 5, null))
                 .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getCode()).isEqualTo(404));
+        verify(creditService, never()).adjust(anyLong(), anyInt(), anyString(), anyString());
+    }
+
+    @Test
+    void clientOperationIdBecomesEventKey() {
+        User target = user(7, User.Role.user);
+        when(users.findById(7L)).thenReturn(Optional.of(target));
+
+        service.adjustCredit(1L, 7L, -5, "op-123");
+
+        verify(creditService).adjust(eq(7L), eq(-5), eq("admin:7:op-123"), anyString());
+    }
+
+    @Test
+    void duplicateOperationDoesNotNotifyAgain() {
+        User target = user(7, User.Role.user);
+        when(users.findById(7L)).thenReturn(Optional.of(target));
+        // CreditService 对同一 eventKey 的重复调用返回 false
+        when(creditService.adjust(eq(7L), eq(-5), eq("admin:7:op-123"), anyString())).thenReturn(false);
+
+        service.adjustCredit(1L, 7L, -5, "op-123");
+
+        verify(notifications, never()).createNotification(anyLong(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void invalidOperationIdIs400BeforeAnyWrite() {
+        assertThatThrownBy(() -> service.adjustCredit(1L, 7L, -5, "a".repeat(37)))
+                .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getCode()).isEqualTo(400));
+        assertThatThrownBy(() -> service.adjustCredit(1L, 7L, -5, "bad key!"))
+                .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getCode()).isEqualTo(400));
         verify(creditService, never()).adjust(anyLong(), anyInt(), anyString(), anyString());
     }
 }
