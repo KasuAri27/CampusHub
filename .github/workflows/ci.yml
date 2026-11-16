@@ -94,7 +94,7 @@ jobs:
           # 旧库：旧结构 + 旧数据，迁移脚本各执行两次以验证可重复运行。
           strip_use backend/src/test/resources/legacy-schema.sql | db campushub_migration_ci
           db campushub_migration_ci < backend/src/test/resources/legacy-migration-fixture.sql
-          for migration in M001-payment-upgrade M001-payment-upgrade M002-schema-cleanup M002-schema-cleanup M003-naming-and-constraints M003-naming-and-constraints M004-merge-user-roles M004-merge-user-roles; do
+          for migration in M001-payment-upgrade M001-payment-upgrade M002-schema-cleanup M002-schema-cleanup M003-naming-and-constraints M003-naming-and-constraints M004-merge-user-roles M004-merge-user-roles M005-user-identity-columns M005-user-identity-columns; do
             db campushub_migration_ci < "backend/SQL/migrations/$migration.sql"
           done
           actual=$(db -N -B campushub_migration_ci -e "SELECT CONCAT(status,':',IF(amount_due IS NULL,'legacy','charged'),':',payment_code) FROM orders WHERE id=1")

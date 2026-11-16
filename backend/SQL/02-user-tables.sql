@@ -15,7 +15,10 @@ USE campushub;
 -- * 角色只分普通用户和管理员。普通用户不再区分“需求方/服务方”，同一账号既能发布也能接单，
 --   需求与订单里的 requester/provider 指的是“这一单的发布者/接单人”，与账号角色无关。
 -- * 登录：学号 + 密码（BCrypt），或手机号 + 邮箱验证码。
+-- * 学号、真实姓名、邮箱在注册时确定，之后不可更改；学号注册必填。
 -- * 手机号用 AES 加密后入库；同一明文加密结果固定，所以能做唯一约束和按密文查找。
+-- * 真实姓名用 AES-GCM 加密后入库（每次密文不同，不能按姓名查询），所以列宽放到 255；
+--   管理员不登记真实姓名，固定为“管理员”。
 -- * 信用分 0-100，初始 100；低于 70 不能发布需求或接单；低于 70 时每天零点恢复 1 分，
 --   恢复到 70 为止（见 credit_recovery_runs）。所有加减分必须经 CreditService，
 --   每次变更在 credit_events 留一条流水。
@@ -24,9 +27,9 @@ USE campushub;
 -- ----------------------------------------------------------------------------
 CREATE TABLE users (
     id              BIGINT          NOT NULL AUTO_INCREMENT  COMMENT '用户ID',
-    student_id      VARCHAR(20)     DEFAULT NULL             COMMENT '学号：密码登录账号，注册时绑定；早期账号可能为空',
-    name            VARCHAR(20)     NOT NULL                 COMMENT '真实姓名',
-    nickname        VARCHAR(20)     DEFAULT NULL             COMMENT '昵称：最长 10 个汉字或 20 个英文字符（汉字计 2，英文数字计 1）；为空时显示真实姓名；注册默认 User+学号前四位',
+    student_id      VARCHAR(20)     NOT NULL                 COMMENT '学号：密码登录账号，注册时必填并绑定，之后不可更改',
+    name            VARCHAR(255)    NOT NULL                 COMMENT '真实姓名密文：gcm: 前缀 + AES-GCM 密文的 Base64，明文最长 20 字符；不带前缀的是加密上线前的历史明文；管理员固定为“管理员”',
+    nickname        VARCHAR(20)     DEFAULT NULL             COMMENT '昵称：最长 10 个汉字或 20 个英文字符（汉字计 2，英文数字计 1）；注册时必填，历史账号可能为空，为空时显示真实姓名',
     email           VARCHAR(100)    NOT NULL                 COMMENT '校园邮箱：接收验证码，注册时由学号生成 学号@smail.nju.edu.cn',
     phone           VARCHAR(255)    NOT NULL                 COMMENT '手机号密文：AES 加密后 Base64；解密失败时页面显示 ***',
     password_hash   VARCHAR(255)    NOT NULL                 COMMENT 'BCrypt 密码哈希',
@@ -34,6 +37,7 @@ CREATE TABLE users (
                                     NOT NULL                 COMMENT '角色：user=普通用户（可发布需求也可接单，但不能接自己的单），admin=管理员（只做审核与监管，不发布不接单）',
     credit_score    INT             NOT NULL DEFAULT 100     COMMENT '信用分 0-100：低于 70 禁止发布和接单',
     avatar          VARCHAR(500)    DEFAULT NULL             COMMENT '头像 URL（/uploads 下的公开文件）',
+    college         VARCHAR(50)     DEFAULT NULL             COMMENT '学院院系：注册时可选填，可在个人资料中修改',
     status          INT             NOT NULL DEFAULT 1       COMMENT '账号状态：1=正常，0=封禁（受限登录）',
     create_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '注册时间',
     update_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后修改时间',

@@ -14,7 +14,7 @@ public class UserController {
 
     private final UserService userService;
 
-    /** 新用户注册：校验短信验证码与学号唯一性，手机号进行 AES 密文存储，并自动绑定校内邮箱。 */
+    /** 新用户注册：校验邮箱验证码与学号唯一性，手机号、姓名密文存储，并自动绑定校内邮箱。 */
     @PostMapping("/register")
     public ApiResponse<LoginResponse> register(@Valid @RequestBody RegisterRequest request) {
         return ApiResponse.success(userService.register(request));
@@ -38,7 +38,7 @@ public class UserController {
     }
 
     @PutMapping("/profile")
-    public ApiResponse<Void> updateProfile(@RequestBody UserProfileDTO dto) {
+    public ApiResponse<Void> updateProfile(@Valid @RequestBody UserProfileDTO dto) {
         Long userId = UserContext.getCurrentUserId();
         userService.updateProfile(userId, dto);
         return ApiResponse.success("更新成功", null);
