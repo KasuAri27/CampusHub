@@ -4,8 +4,8 @@
 
 | 分支 | 职责范围 |
 |---|---|
-| `main` | 主干：整体文档编写、横切共享代码（common、config 基础、util 除外见下）；所有合并的目标 |
-| `SQL` | 数据库：`backend/SQL/` 迁移、数据库配置、schema 与实体协调 |
+| `main` | 主干：整体文档编写、横切共享代码（common、config 基础、util 除外见下）、数据库全局件（建库/迁移登记/结构指纹/种子/断言清单）；所有合并的目标 |
+| `redis` | 缓存扩展：Redis 缓存与分布式锁落地（见 TODO §2.1） |
 | `user` | 用户页面、登录注册、用户权限：后端 user/verification/file/security/util 与 SecurityConfig，前端 user/、views/、userStore |
 | `admin` | 管理员相关功能：admin 前后端 |
 | `task` | 核心业务：发布需求、接单、交易、组队等（task/order/payment/review/complaint/category 前后端，高度耦合不再细分） |
@@ -43,9 +43,9 @@ PR描述说明：问题和结果、涉及的信息流和状态迁移、验证命
 
 ## GitHub持续集成
 
-`.github/workflows/ci.yml` 在 `main`、`SQL`、`user`、`admin`、`task`、`chat` 推送及所有PR上执行，没有路径过滤造成的CI配置漏检。
+`.github/workflows/ci.yml` 在 `main`、`user`、`admin`、`task`、`chat`、`redis` 推送及所有PR上执行业务测试与前端检查。数据库结构校验拆至 `.github/workflows/sql-schema.yml`，仅在 `backend/SQL/` 及相关结构测试资源变动时触发，避免业务分支重构或升级时被结构断言连带失败。
 
-检查项：`backend-h2`、`backend-mysql`、`frontend`。后端运行全部测试、打包及核心包60%行覆盖率门槛；前端的全文件检查、单元测试和生产构建分步执行，前一项失败不影响后面的检查运行。失败时仍保存Surefire与JaCoCo报告。
+检查项：`backend-h2`、`backend-mysql`、`frontend`（全分支触发），以及 `sql-schema`（结构校验，仅 SQL 路径触发）。后端运行全部测试、打包及核心包60%行覆盖率门槛；前端的全文件检查、单元测试和生产构建分步执行，前一项失败不影响后面的检查运行。失败时仍保存Surefire与JaCoCo报告。
 
 - **用例必须跑全**：流水线不允许出现被跳过的用例。后端按Surefire报告核对，前端按测试汇总核对，跳过数不为0即失败。`main` 上的运行不会被后续提交取消。
 - **Redis检测**：两个后端任务都自带Redis服务，`RedisConnectivityTest` 用应用自身的连接配置做PING与读写往返。本机默认跳过该用例；已启动Redis时设置 `CAMPUSHUB_TEST_REDIS_REQUIRED=true` 可一并执行。
