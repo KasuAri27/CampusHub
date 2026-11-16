@@ -30,9 +30,15 @@ public class UserService implements UserDetailsService {
     private final JwtUtil jwtUtil;
     private final VerificationCodeService verificationCodeService;
 
+    /**
+     * 学号注册。前置条件：已向该手机号、该学号申请过 REGISTER 验证码。
+     * 学号、昵称必填，学院可选；角色固定为普通用户，校园邮箱由学号生成。
+     * 整个方法在一个事务内：后续任何校验失败都会连同“验证码已使用”一起回滚，验证码可重试。
+     */
     @Transactional
     public LoginResponse register(RegisterRequest request) {
-        verificationCodeService.verifyCode(request.getPhone(), request.getSmsCode(), "REGISTER", request.getStudentId());
+        NicknameRule.check(request.getNickname());
+        verificationCodeService.verifyCode(request.getPhone(), request.getCode(), "REGISTER", request.getStudentId());
 
         if (userRepository.existsByStudentId(request.getStudentId())) {
             throw new BusinessException("学号已注册");
@@ -51,16 +57,16 @@ public class UserService implements UserDetailsService {
         user.setPhone(encryptedPhone);
         user.setPassword(bcryptUtil.encode(request.getPassword()));
         user.setRole(User.Role.user);
-        user.setNickname("User" + request.getStudentId().substring(0, 4));
+        user.setNickname(request.getNickname());
+        user.setCollege(blankToNull(request.getCollege()));
         user.setCreditScore(100);
         user.setStatus(1);
         userRepository.save(user);
 
-        String token = jwtUtil.generateToken(user.getStudentId(), user.getId());
-        return new LoginResponse(token, user.getId(), user.getStudentId(), user.getNickname(),
-                user.getRole() != null ? user.getRole().name() : null);
+        return responseFor(user);
     }
 
+    /** 密码登录：账号可以是学号，也可以是 11 位手机号（按确定性密文查找）。 */
     public LoginResponse loginWithPassword(LoginRequest request) {
         Optional<User> userOpt;
         if (request.getAccount().matches("^1[3-9]\\d{9}$")) {
@@ -75,10 +81,10 @@ public class UserService implements UserDetailsService {
             throw new BusinessException("密码错误");
         }
 
-        String token = jwtUtil.generateToken(user.getStudentId(), user.getId());
-        return responseFor(user, token);
+        return responseFor(user);
     }
 
+    /** 手机号 + 邮箱验证码登录，只面向已注册账号，不会自动注册。 */
     @Transactional
     public LoginResponse loginWithSms(SmsLoginRequest request) {
         verificationCodeService.verifyCode(request.getPhone(), request.getCode(), "LOGIN");
@@ -88,13 +94,7 @@ public class UserService implements UserDetailsService {
         // 手机验证码登录只用于已有校内账号，清理无法产生有效JWT的空学号自动注册分支。
         User user = userOpt.orElseThrow(() -> new BusinessException(404, "账号未注册，请先完成校内注册"));
 
-        String token = jwtUtil.generateToken(user.getStudentId(), user.getId());
-        LoginResponse response = new LoginResponse(token, user.getId(), user.getStudentId(),
-                user.getNickname(), user.getRole() != null ? user.getRole().name() : null);
-        response.setNeedBindStudentId(user.getStudentId().isEmpty());
-        response.setRestricted(user.getStatus() != 1);
-        response.setCreditScore(user.getCreditScore());
-        return response;
+        return responseFor(user);
     }
 
     public UserProfileDTO getProfile(Long userId) {
@@ -113,36 +113,33 @@ public class UserService implements UserDetailsService {
                 user.getEmail(),
                 user.getNickname(),
                 user.getAvatar(),
+                user.getCollege(),
                 user.getCreditScore(),
-                user.getRole() != null ? user.getRole().name() : null,
+                user.getRole().name(),
                 user.getStatus() != 1
         );
     }
 
+    /**
+     * 修改个人资料，只能改昵称、头像、学院。字段为 null 表示不修改；学院传空字符串表示清空。
+     * 昵称按 {@link NicknameRule} 校验后才落库。
+     */
     @Transactional
     public void updateProfile(Long userId, UserProfileDTO dto) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
 
         if (dto.getNickname() != null) {
+            NicknameRule.check(dto.getNickname());
             user.setNickname(dto.getNickname());
         }
         if (dto.getAvatar() != null) {
             user.setAvatar(dto.getAvatar());
         }
-
-        // 如果更新了学号，自动同步更新邮箱
-        if (dto.getStudentId() != null && !dto.getStudentId().isEmpty()) {
-            // 检查新学号是否已被其他用户占用
-            if (!dto.getStudentId().equals(user.getStudentId())) {
-                if (userRepository.existsByStudentId(dto.getStudentId())) {
-                    throw new BusinessException("学号已被其他用户绑定");
-                }
-                user.setStudentId(dto.getStudentId());
-                // 自动更新邮箱为新的学号邮箱
-                user.setEmail(dto.getStudentId() + "@smail.nju.edu.cn");
-            }
+        if (dto.getCollege() != null) {
+            user.setCollege(blankToNull(dto.getCollege()));
         }
+        // 学号、姓名、邮箱注册后不可更改：请求体里即使带了这些字段也不采纳。
 
         userRepository.save(user);
     }
@@ -169,12 +166,26 @@ public class UserService implements UserDetailsService {
         );
     }
 
-    /** 封禁用户可验证身份后进入受限账户；具体允许的还款/申诉路径由过滤链控制。 */
-    private LoginResponse responseFor(User user, String token) {
-        LoginResponse response = new LoginResponse(token, user.getId(), user.getStudentId(), user.getNickname(),
-                user.getRole() == null ? null : user.getRole().name());
-        response.setRestricted(user.getStatus() != 1);
-        response.setCreditScore(user.getCreditScore());
-        return response;
+    /**
+     * 签发 JWT 并组装注册、登录共用的响应（token、role、user）。
+     * 封禁用户也能拿到 token 进入受限账户（restricted=true）；具体允许的还款/申诉路径由过滤链控制。
+     */
+    private LoginResponse responseFor(User user) {
+        String token = jwtUtil.generateToken(user.getStudentId(), user.getId());
+        LoginResponse.UserInfo info = new LoginResponse.UserInfo(
+                user.getId(),
+                user.getStudentId(),
+                user.getNickname(),
+                user.getAvatar(),
+                user.getCollege(),
+                user.getCreditScore(),
+                user.getStatus() != 1
+        );
+        return new LoginResponse(token, user.getRole().name(), info);
+    }
+
+    /** 可选文本字段的统一归一：null 或纯空白一律存为 null，避免库里同时出现 NULL 和空串两种“未填写”。 */
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }
