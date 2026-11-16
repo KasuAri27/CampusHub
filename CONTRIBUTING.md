@@ -4,14 +4,15 @@
 
 | 分支 | 职责范围 |
 |---|---|
-| `main` | 主干：整体文档编写、横切共享代码（common、config 基础、util 除外见下）；所有合并的目标 |
-| `SQL` | 数据库：`backend/SQL/` 迁移、数据库配置、schema 与实体协调 |
+| `main` | 主干：整体文档编写、横切共享代码（common、config 基础、util 除外见下）、数据库全局件（建库/迁移登记/结构指纹/种子/断言清单）；所有合并的目标 |
+| `redis` | 缓存扩展：Redis 缓存与分布式锁落地（见 TODO §2.1） |
 | `user` | 用户页面、登录注册、用户权限：后端 user/verification/file/security/util 与 SecurityConfig，前端 user/、views/、userStore |
 | `admin` | 管理员相关功能：admin 前后端 |
 | `task` | 核心业务：发布需求、接单、交易、组队等（task/order/payment/review/complaint/category 前后端，高度耦合不再细分） |
 | `chat` | 通知与 WebSocket 对话系统：chat/notification 前后端 |
 
 - **未经许可不许合并**：任何分支合并（含合入 main）必须经用户明确批准；不要直接把未经检查的改动合入主分支。
+- **进远程只有一条路**：各工作树分支先合入本地 `main`，再由 `main` 建临时分支 `tmp/<主题>` 推到远程发起合并请求，在远程合并后删除临时分支。功能分支不直接向远程发起合并请求。具体步骤见 [AGENTS §6](AGENTS.md)。
 - **文件位置纪律**：所有分支产生的文件（代码、文档、脚本、测试数据）一律放在项目根目录之内，不得延伸到项目外。
 - 模块边界、冻结接口与共享文件所有权见 [模块契约](docs/Engineer/模块契约.md)；跨分支只能调用冻结接口。
 
@@ -43,15 +44,26 @@ PR描述说明：问题和结果、涉及的信息流和状态迁移、验证命
 
 ## GitHub持续集成
 
-`.github/workflows/ci.yml` 在 `main`、`SQL`、`user`、`admin`、`task`、`chat` 推送及所有PR上执行，没有路径过滤造成的CI配置漏检。
+`.github/workflows/ci.yml` 在 `main`、`user`、`admin`、`task`、`chat`、`redis` 推送及所有PR上执行。流水线先判断本次改动的范围，再由互相独立的四类检查各自决定是否执行：改动与某类检查无关时，该检查跳过内部步骤直接通过，不会被无关改动连带失败。推送到 `main`、手动触发、拿不到对比基准或改动了 `.github/` 时，全部检查都执行。
 
-检查项：`backend-h2`、`backend-mysql`、`frontend`。后端运行全部测试、打包及核心包60%行覆盖率门槛；前端的全文件检查、单元测试和生产构建分步执行，前一项失败不影响后面的检查运行。失败时仍保存Surefire与JaCoCo报告。
+| 检查 | 内容 | 何时执行 |
+|---|---|---|
+| `backend-h2`、`backend-mysql` | 后端全部测试、打包及核心包60%行覆盖率门槛 | `backend/` 下有改动（不含 `backend/SQL/`） |
+| `frontend` | 全文件检查、单元测试、生产构建 | `frontend/` 下有改动 |
+| `sql-schema` | 全新建库与旧库逐个升级，两条路径的结构必须一致 | `backend/SQL/` 或结构比对用的测试资源有改动 |
+| `entity-schema` | 用建表脚本建库，后端以 `ddl-auto=validate` 启动 | 后端主代码、`pom.xml` 或 `backend/SQL/` 有改动 |
+| `ci-gate` | 汇总以上结果，任何一项失败即失败 | 每次 |
+
+前端的三项检查分步执行，前一项失败不影响后面的检查运行。后端失败时仍保存Surefire与JaCoCo报告。
+
+- **校验逻辑在脚本里**：判断改动范围、结构比对、实体一致性分别是 `.github/scripts/` 下的 `detect-changes.sh`、`check-sql-schema.sh`、`check-entity-schema.sh`，CI和本机运行同一份，用法见各脚本头部。升级脚本与建表脚本由脚本按文件名自动发现，新增时不需要改流水线；测试数据变化时同步修改 `backend/SQL/ci-assertions.env` 里的期望值。
+- **实体一致性检查的范围**：业务测试的库由实体直接生成，不读建表脚本，所以“实体改了、脚本没跟上”只有 `entity-schema` 能发现。它能发现缺表、缺列和列类型不兼容；发现不了脚本里多出的列、非空与长度差异。
 
 - **用例必须跑全**：流水线不允许出现被跳过的用例。后端按Surefire报告核对，前端按测试汇总核对，跳过数不为0即失败。`main` 上的运行不会被后续提交取消。
 - **Redis检测**：两个后端任务都自带Redis服务，`RedisConnectivityTest` 用应用自身的连接配置做PING与读写往返。本机默认跳过该用例；已启动Redis时设置 `CAMPUSHUB_TEST_REDIS_REQUIRED=true` 可一并执行。
 - **建库校验的客户端字符集**：容器内的mysql客户端必须显式使用utf8mb4，否则中文数据会被误读并触发长度约束。
 
-`main` 禁止直接推送：仓库规则集 `main-protection`（定义见 `.github/rulesets/main-protection.json`）要求所有改动经PR合入、以上三个检查全部通过，并禁止强制推送和删除分支，管理员同样不可绕过。规则集当前不强制审批人数；涉及支付、退款、结算、权限和处罚的改动仍须人工审查。
+`main` 禁止直接推送：仓库规则集 `main-protection`（定义见 `.github/rulesets/main-protection.json`）要求所有改动经PR合入、`backend-h2`、`backend-mysql`、`frontend` 三个检查全部通过，并禁止强制推送和删除分支，管理员同样不可绕过。`sql-schema`、`entity-schema` 不在规则集按名字要求的检查里，它们失败会让 `ci-gate` 失败，但只有规则集改为要求 `ci-gate` 后才会拦住合并。规则集当前不强制审批人数；涉及支付、退款、结算、权限和处罚的改动仍须人工审查。
 
 工作流文件不能自行修改仓库的分支保护设置，规则集的变更由仓库管理员按上述文件在GitHub上更新；本地编写和静态验证也不能当成远端CI已运行。
 
