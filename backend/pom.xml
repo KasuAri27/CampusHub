@@ -35,7 +35,6 @@
             <artifactId>alipay-sdk-java</artifactId>
             <version>4.40.1061.ALL</version>
         </dependency>
-        <!-- Web 和常用依赖保持不变 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
@@ -56,6 +55,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
+        <!-- Redis 客户端（Lettuce），版本随 Spring Boot 管理；连接懒建立，未启动 Redis 不影响应用启动与测试。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
@@ -75,7 +79,6 @@
             <optional>true</optional>
         </dependency>
 
-        <!-- JWT 依赖保持不变 -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
@@ -94,7 +97,7 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- 新增邮件依赖 -->
+        <!-- 验证码邮件发送。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
@@ -159,14 +162,11 @@
                     </excludes>
                 </configuration>
             </plugin>
-            <!-- 删除或修正 maven-compiler-plugin 配置，使用 Java 17 -->
-            <!-- 如果保留，请将 source 和 target 改为 17，或直接删除整个插件（Spring Boot 会处理） -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
                     <release>17</release>
-                    <!-- source 和 target 可以不显式指定，使用 release 即可 -->
                 </configuration>
             </plugin>
         </plugins>

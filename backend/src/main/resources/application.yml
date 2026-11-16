@@ -22,6 +22,17 @@ spring:
         format_sql: true
     open-in-view: false
 
+  # Redis 连接由运行环境注入；默认指向本机 6379、无密码，仅适用于本地开发。
+  data:
+    redis:
+      host: ${CAMPUSHUB_REDIS_HOST:localhost}
+      port: ${CAMPUSHUB_REDIS_PORT:6379}
+      password: ${CAMPUSHUB_REDIS_PASSWORD:}
+      timeout: 2s
+      # 本项目仓库全部是 JPA；关闭 Redis 仓库扫描，避免对每个 JPA 仓库输出“无法确定存储归属”的提示。
+      repositories:
+        enabled: false
+
   jackson:
     time-zone: Asia/Shanghai
   servlet:
@@ -33,7 +44,7 @@ spring:
       pool:
         size: 4
 
-  # ========== 新增邮件配置 ==========
+  # 验证码邮件发送；账号与授权码由运行环境注入。
   mail:
     host: smtp.exmail.qq.com         # 南大 smail SMTP 服务器
     port: 465
@@ -51,8 +62,8 @@ spring:
           ssl:
             enable: true
           socketFactory:
-            port:465
-            class:javax.net.ssl.SSLSocketFactory
+            port: 465
+            class: javax.net.ssl.SSLSocketFactory
           from: ${CAMPUSHUB_SMTP_USERNAME:}
 
 # JWT 身份验证安全配置

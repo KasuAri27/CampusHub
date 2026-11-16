@@ -43,11 +43,17 @@ PR描述说明：问题和结果、涉及的信息流和状态迁移、验证命
 
 ## GitHub持续集成
 
-`.github/workflows/ci.yml` 在 `main`、`dev` 推送及所有PR上执行，没有路径过滤造成的CI配置漏检。
+`.github/workflows/ci.yml` 在 `main`、`SQL`、`user`、`admin`、`task`、`chat` 推送及所有PR上执行，没有路径过滤造成的CI配置漏检。
 
-检查项：`backend-h2`、`backend-mysql`、`frontend`。后端运行测试、打包及核心包60%行覆盖率门槛；前端运行全文件检查、单元测试和生产构建。失败时仍保存Surefire与JaCoCo报告。
+检查项：`backend-h2`、`backend-mysql`、`frontend`。后端运行全部测试、打包及核心包60%行覆盖率门槛；前端的全文件检查、单元测试和生产构建分步执行，前一项失败不影响后面的检查运行。失败时仍保存Surefire与JaCoCo报告。
 
-维护者应在GitHub规则中将以上三个检查设为合并前必需项，要求PR及人工审查。工作流文件不能自行修改仓库的分支保护设置；本地编写和静态验证也不能当成远端CI已运行。
+- **用例必须跑全**：流水线不允许出现被跳过的用例。后端按Surefire报告核对，前端按测试汇总核对，跳过数不为0即失败。`main` 上的运行不会被后续提交取消。
+- **Redis检测**：两个后端任务都自带Redis服务，`RedisConnectivityTest` 用应用自身的连接配置做PING与读写往返。本机默认跳过该用例；已启动Redis时设置 `CAMPUSHUB_TEST_REDIS_REQUIRED=true` 可一并执行。
+- **建库校验的客户端字符集**：容器内的mysql客户端必须显式使用utf8mb4，否则中文数据会被误读并触发长度约束。
+
+`main` 禁止直接推送：仓库规则集 `main-protection`（定义见 `.github/rulesets/main-protection.json`）要求所有改动经PR合入、以上三个检查全部通过，并禁止强制推送和删除分支，管理员同样不可绕过。规则集当前不强制审批人数；涉及支付、退款、结算、权限和处罚的改动仍须人工审查。
+
+工作流文件不能自行修改仓库的分支保护设置，规则集的变更由仓库管理员按上述文件在GitHub上更新；本地编写和静态验证也不能当成远端CI已运行。
 
 ## 商户与真实资金
 

@@ -12,6 +12,11 @@ spring:
       hibernate:
         format_sql: false
     open-in-view: false
+  # 测试不依赖 Redis 实例：连接懒建立，这里只关闭 Redis 仓库扫描，与主配置保持一致。
+  data:
+    redis:
+      repositories:
+        enabled: false
   sql:
     init:
       mode: never
