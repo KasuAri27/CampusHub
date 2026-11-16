@@ -19,8 +19,10 @@ import com.campushub.task.Task;
 import com.campushub.task.TaskService;
 import com.campushub.task.TaskRepository;
 import com.campushub.task.TeamingTask;
+import com.campushub.user.CreditService;
 import com.campushub.user.User;
 import com.campushub.user.UserRepository;
+import com.campushub.user.UserService;
 import com.campushub.order.Order;
 import com.campushub.review.Review;
 import jakarta.persistence.criteria.Predicate;
@@ -38,6 +40,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -51,6 +54,8 @@ public class AdminService {
     private final OrderRepository orderRepository;
     private final ReviewRepository reviewRepository;
     private final TaskService taskService;
+    private final UserService userService;
+    private final CreditService creditService;
     private final ConversationRepository conversationRepository;
     private final ConversationMemberRepository conversationMemberRepository;
     private final MessageRepository messageRepository;
@@ -148,34 +153,38 @@ public class AdminService {
         return toUserDTO(u);
     }
 
+    /**
+     * 切换用户封禁状态。后台只做管理员鉴权，状态写入与悲观写锁由
+     * {@link UserService#toggleStatus} 负责，AdminService 不再直写 User.status。
+     */
     @Transactional
     public void toggleUserStatus(Long adminUserId, Long targetUserId) {
         requireAdmin(adminUserId);
-        User target = userRepository.findById(targetUserId)
-                .orElseThrow(() -> new BusinessException(404, "目标用户不存在"));
-        target.setStatus(target.getStatus() != null && target.getStatus() == 1 ? 0 : 1);
-        userRepository.save(target);
+        userService.toggleStatus(targetUserId);
     }
 
     /**
-     * 管理员调整信用分：受[0, 100]区间限制，达到上限禁止上调；
+     * 管理员调整信用分。分数写入、行锁、[0,100] 钳制与 CreditEvent 审计流水统一由
+     * {@link CreditService#adjust} 负责，后台不再直接 setCreditScore。
+     * 在 100 分时继续上调不再报 400，而是钳制后记一条流水（2026-11 用户确认的规则）。
+     * 幂等键：当前每次调用由服务端生成 UUID，保证每次人工调整都落一条独立流水，
+     * 因而尚不具备“重复提交不重复扣分”的能力；可选 operationId 须待契约修订批准后接入。
      * 降至70分以下时触发权限限制警告，通知用户发单受限。
+     * 事务内先锁用户（CreditService 内 findLockedById）再写流水，与其他信用分写入口的锁顺序一致。
      */
     @Transactional
     public void adjustCredit(Long adminUserId, Long targetUserId, int delta) {
-        requireAdmin(adminUserId);
-        User admin = userRepository.findById(adminUserId).get();
-        User target = userRepository.findById(targetUserId)
+        User admin = requireAdmin(adminUserId);
+        // 保留原有的"目标用户不存在"文案；仅作存在性校验，写入仍由 CreditService 加锁完成
+        userRepository.findById(targetUserId)
                 .orElseThrow(() -> new BusinessException(404, "目标用户不存在"));
-        int current = target.getCreditScore() != null ? target.getCreditScore() : 0;
-        if (delta > 0 && current >= 100) {
-            throw new BusinessException(400, "信用分已达上限（100分），无法继续增加");
-        }
-        int newScore = Math.min(100, Math.max(0, current + delta));
-        target.setCreditScore(newScore);
-        userRepository.save(target);
-
         String adminName = admin.getName();
+        String eventKey = "admin:" + targetUserId + ":" + UUID.randomUUID();
+        creditService.adjust(targetUserId, delta, eventKey,
+                "管理员 " + adminName + " 调整信用分 " + (delta >= 0 ? "+" : "") + delta);
+        // 同一事务内读回已更新实体，取调整后的分数用于通知文案
+        int newScore = userRepository.findById(targetUserId).map(User::getCreditScore).orElse(0);
+
         String action = delta >= 0 ? "增加了 " + Math.abs(delta) + " 分" : "扣除了 " + Math.abs(delta) + " 分";
         String title = "信用分变动通知";
         String content = "管理员 " + adminName + " " + action + "，当前信用分：" + newScore;
