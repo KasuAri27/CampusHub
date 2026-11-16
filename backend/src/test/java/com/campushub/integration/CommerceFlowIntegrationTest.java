@@ -297,7 +297,7 @@ class CommerceFlowIntegrationTest {
         requester.setPassword(bcrypt.encode("Password1!")); requester.setStatus(0); users.save(requester);
         JsonNode login = response(mvc.perform(post("/v1/auth/login/password").contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(Map.of("account", requester.getStudentId(), "password", "Password1!"))))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.restricted").value(true)));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.user.restricted").value(true)));
         String restricted = "Bearer " + login.path("data").path("token").asText();
         mvc.perform(post("/v1/tasks").header("Authorization", restricted).contentType(MediaType.APPLICATION_JSON).content(validTask().toString()))
                 .andExpect(status().isForbidden());
@@ -315,11 +315,43 @@ class CommerceFlowIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data").doesNotExist());
         String code = verificationCodes.findByPhoneAndTypeAndUsedFalse(phone, "REGISTER").get(0).getCode();
         mvc.perform(post("/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsString(Map.of("phone", phone, "studentId", studentId, "name", "测试同学", "password", "Password1!", "smsCode", code))))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.token").isNotEmpty());
-        mvc.perform(post("/v1/auth/login/password").contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("phone", phone, "studentId", studentId, "name", "测试同学", "password", "Password1!", "code", code, "nickname", "测试昵称"))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.token").isNotEmpty())
+                .andExpect(jsonPath("$.data.role").value("user")).andExpect(jsonPath("$.data.user.studentId").value(studentId))
+                .andExpect(jsonPath("$.data.user.nickname").value("测试昵称")).andExpect(jsonPath("$.data.user.college").doesNotExist());
+        JsonNode login = response(mvc.perform(post("/v1/auth/login/password").contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(Map.of("account", studentId, "password", "Password1!"))))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.creditScore").value(100));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.user.creditScore").value(100)));
+        // 姓名在库里必须是密文，经实体读出来才是明文。
+        String storedName = jdbc.queryForObject("SELECT name FROM users WHERE student_id = ?", String.class, studentId);
+        assertThat(storedName).startsWith("gcm:").doesNotContain("测试同学");
+        assertThat(users.findByStudentId(studentId).orElseThrow().getName()).isEqualTo("测试同学");
+        // 学院注册时未填，之后在个人资料里补充；超长昵称给出 400 而不是撞数据库约束。
+        String self = "Bearer " + login.path("data").path("token").asText();
+        mvc.perform(put("/v1/auth/profile").header("Authorization", self).contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("college", "计算机学院")))).andExpect(status().isOk());
+        mvc.perform(get("/v1/auth/profile").header("Authorization", self))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.college").value("计算机学院")).andExpect(jsonPath("$.data.nickname").value("测试昵称"));
+        mvc.perform(put("/v1/auth/profile").header("Authorization", self).contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("nickname", "十一个汉字的昵称超长了呀")))).andExpect(status().isBadRequest());
+    }
+    @Test void identityFieldsAreImmutableAndAdminNameIsFixed() throws Exception {
+        // 个人资料请求里夹带学号不会被采纳，学号和邮箱保持注册时的值，昵称正常修改。
+        mvc.perform(put("/v1/auth/profile").header("Authorization", token(requester)).contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("studentId", "20269999999", "nickname", "新昵称")))).andExpect(status().isOk());
+        mvc.perform(get("/v1/auth/profile").header("Authorization", token(requester))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.studentId").value(requester.getStudentId())).andExpect(jsonPath("$.data.email").value(requester.getEmail()))
+                .andExpect(jsonPath("$.data.nickname").value("新昵称"));
+        // 绕过服务层直接改实体，学号、姓名、邮箱也不会落库。
+        User loaded = users.findById(requester.getId()).orElseThrow();
+        loaded.setStudentId("changed"); loaded.setName("改名"); loaded.setEmail("changed@example.invalid"); users.saveAndFlush(loaded);
+        assertThat(jdbc.queryForObject("SELECT CONCAT(student_id, '|', email) FROM users WHERE id = ?", String.class, requester.getId()))
+                .isEqualTo(requester.getStudentId() + "|" + requester.getEmail());
+        assertThat(users.findById(requester.getId()).orElseThrow().getName()).isEqualTo("req");
+        // 管理员：创建时传入的姓名被固定姓名覆盖；即使用 SQL 写入别的姓名，读出来仍是固定姓名。
+        assertThat(users.findById(admin.getId()).orElseThrow().getName()).isEqualTo(User.ADMIN_NAME);
+        jdbc.update("UPDATE users SET name = 'someone' WHERE id = ?", admin.getId());
+        assertThat(users.findById(admin.getId()).orElseThrow().getName()).isEqualTo(User.ADMIN_NAME);
     }
     @Test void registrationCodeCannotBeUsedForAnotherStudentId() throws Exception {
         String phone = "13800000888";
@@ -327,7 +359,7 @@ class CommerceFlowIntegrationTest {
                 .content(json.writeValueAsString(Map.of("phone", phone, "studentId", "20261031888", "type", "REGISTER")))).andExpect(status().isOk());
         String code = verificationCodes.findByPhoneAndTypeAndUsedFalse(phone, "REGISTER").get(0).getCode();
         mvc.perform(post("/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsString(Map.of("phone", phone, "studentId", "20261031777", "name", "测试同学", "password", "Password1!", "smsCode", code))))
+                .content(json.writeValueAsString(Map.of("phone", phone, "studentId", "20261031777", "name", "测试同学", "password", "Password1!", "code", code, "nickname", "测试昵称"))))
                 .andExpect(status().isBadRequest());
         assertThat(users.existsByStudentId("20261031777")).isFalse();
     }
