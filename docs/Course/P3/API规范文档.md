@@ -336,7 +336,9 @@
 - **用户管理与封禁**：
   - 分页检索：`GET /v1/admin/users?page=1&size=20&keyword=...`
   - 封禁/解冻：`PUT /v1/admin/users/{id}/status`
-  - 手动调整信用分：`PUT /v1/admin/users/{id}/credit`（Body: `{ "delta": -5 }`）
+  - 手动调整信用分：`PUT /v1/admin/users/{id}/credit`（Body: `{ "delta": -5, "operationId": "op-123" }`）
+    - `operationId` 可选，字母/数字/下划线/连字符，≤36 字符；同一编号重复提交只生效一次且不重复通知，同编号但参数不一致返回 409；缺省时服务端生成，每次调用独立生效。
+    - 信用分已达 100 时继续上调不再返回 400，按 [0,100] 钳制后记录流水。
 - **需求审批与驳回**：
   - 待审需求分页：`GET /v1/admin/tasks?status=pending_review`
   - 审核通过：`PUT /v1/admin/tasks/{id}/approve`
