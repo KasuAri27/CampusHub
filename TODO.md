@@ -47,7 +47,7 @@
 后续开发重心：先修复各板块之间的耦合问题，再开展高并发与大数据量测试。问题编号与证据见 `docs/Engineer/模块契约.md` §9 与 `docs/Engineer/架构文档.md` §9。
 
 ### 4.1 模块间修复（按优先级）
-- **K1（最高，业务风险）**：admin 写操作改走域服务；adjustCredit 必须经 CreditService，补齐 CreditEvent 审计与幂等。admin 分支 + user 分支协调。
+- ~~**K1（最高，业务风险）**~~：**已修复（2026-11-16，本地 main）**。封禁走 `UserService.toggleStatus`，调分走 `CreditService.adjust`（可选 operationId 幂等），需求审核/驳回/删除走 `TaskService.*ByAdmin`。遗留：分类增删改仍由 AdminService 直写 `categoryRepository`（分类表归交易核心），是否改走 task 域待定。
 - **K3**：ChatIntegrationService 参数由 Task 实体改标量（目标签名见契约 §3.3）。chat + task 分支协调。
 - **K5**：建立 orderPolicy 前端规则副本与后端规则的同步机制。task 分支。
 - **K6**：清除 5 处硬编码 localhost:8080，统一走代理或配置注入。各前端分支。
@@ -56,7 +56,7 @@
 
 ### 4.2 高并发与大数据量测试
 - **目标**：验证接单互斥、支付回调幂等、信用分行锁、通知双写事务边界在高并发下的正确性；大数据量下广场查询、订单分页、消息列表的性能。
-- **前置**：K1 修复完成（信用分审计对账依赖）；测试数据生成脚本由 main 协调（数据库全局件归 main）。
+- **前置**：K1 已修复（信用分审计对账依赖）；测试数据生成脚本由 main 协调（数据库全局件归 main）。
 - **约定**：压测工具选型另议；脚本与数据一律放项目根目录内；测试库独立，不连开发/生产库。
 
 ### 4.3 工程协调
