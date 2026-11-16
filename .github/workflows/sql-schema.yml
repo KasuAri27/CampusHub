@@ -36,8 +36,8 @@ jobs:
       mysql:
         image: mysql:8.4
         env:
+          # 不设 MYSQL_DATABASE：两个校验库都由下面的脚本显式创建，容器预建同名库会让 CREATE DATABASE 报“库已存在”。
           MYSQL_ROOT_PASSWORD: ci-only-password
-          MYSQL_DATABASE: campushub_schema_ci
         ports: ['3306:3306']
         options: >-
           --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-only-password --silent"
