@@ -24,12 +24,11 @@
 <script setup>
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useUserStore } from '@/user/userStore'
+import http from '@/common/http'
 
 const emit = defineEmits(['send'])
 const text = ref('')
 const fileInput = ref(null)
-const userStore = useUserStore()
 
 function sendText() {
   if (!text.value.trim()) return
@@ -41,32 +40,25 @@ function triggerUpload() {
   fileInput.value.click()
 }
 
+/**
+ * 发送图片：上传走统一 http 实例（K8），鉴权头与错误提示由拦截器处理；
+ * 消息内容保存上传接口返回的相对路径，展示时经 assetUrl 归一化。
+ */
 async function uploadImage(e) {
   const file = e.target.files[0]
+  e.target.value = '' // 清空选择，允许重复上传同一张图片
   if (!file) return
+  if (!file.type.startsWith('image/')) { ElMessage.warning('只能发送图片文件'); return }
+  if (file.size > 5 * 1024 * 1024) { ElMessage.warning('图片不能超过 5MB'); return }
 
   const formData = new FormData()
   formData.append('file', file)
-
   try {
-    // 复用已有的文件上传接口
-    const res = await fetch('/v1/files/upload', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${userStore.token}`
-      },
-      body: formData
-    })
-    const json = await res.json()
-    if (json.code === 200 && json.data?.url) {
-      emit('send', { content: json.data.url, msgType: 'IMAGE' })
-    } else {
-      ElMessage.error(json.message || '图片上传失败')
-    }
-  } catch (error) {
-    ElMessage.error('图片上传失败')
-  } finally {
-    e.target.value = '' // 清空选择，允许重复上传同一张图片
+    const url = (await http.post('/files/upload', formData)).data?.data?.url
+    if (url) emit('send', { content: url, msgType: 'IMAGE' })
+    else ElMessage.error('图片上传失败，请重试')
+  } catch {
+    // 拦截器已提示
   }
 }
 </script>

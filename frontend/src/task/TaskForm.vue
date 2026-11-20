@@ -39,10 +39,7 @@
           style="width: 100%"
           clearable
         >
-          <el-option label="鼓楼校区" value="鼓楼校区" />
-          <el-option label="仙林校区" value="仙林校区" />
-          <el-option label="浦口校区" value="浦口校区" />
-          <el-option label="苏州校区" value="苏州校区" />
+          <el-option v-for="c in CAMPUSES" :key="c" :label="c" :value="c" />
         </el-select>
       </el-form-item>
 
@@ -148,14 +145,14 @@
       <template v-if="taskType === 'FLEA'">
         <el-form-item label="交易类型" prop="tradeMode">
           <el-radio-group v-model="form.tradeMode" size="large">
-            <el-radio-button label="SELL">出物</el-radio-button>
-            <el-radio-button label="BUY">收物</el-radio-button>
+            <el-radio-button value="SELL">出物</el-radio-button>
+            <el-radio-button value="BUY">收物</el-radio-button>
           </el-radio-group>
         </el-form-item>
 
 
           <div class="form-row">
-            <el-form-item label="物品金额" prop="itemPrice" class="form-col">
+            <el-form-item :label="form.tradeMode === 'BUY' ? '求购预算' : '出售价格'" prop="itemPrice" class="form-col">
               <el-input-number
                   v-model="form.itemPrice"
                   :min="0"
@@ -202,8 +199,8 @@
         <div class="form-row">
           <el-form-item label="咨询方式" prop="consultingMode" class="form-col">
             <el-radio-group v-model="form.consultingMode" size="large">
-              <el-radio-button label="ONLINE">线上咨询</el-radio-button>
-              <el-radio-button label="OFFLINE">线下咨询</el-radio-button>
+              <el-radio-button value="ONLINE">线上咨询</el-radio-button>
+              <el-radio-button value="OFFLINE">线下咨询</el-radio-button>
             </el-radio-group>
           </el-form-item>
           <el-form-item label="咨询报酬" prop="reward" class="form-col">
@@ -235,12 +232,12 @@
 
     <!-- 提交按钮 -->
     <div class="form-actions">
-      <el-button size="large" @click="$emit('submitted')">取消</el-button>
+      <el-button size="large" @click="$emit('cancel')">返回选择类型</el-button>
       <el-button type="primary" size="large" :loading="submitting" @click="submitForm">
         <svg v-if="!submitting" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;margin-right:6px">
           <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
         </svg>
-        {{ submitting ? '发布中...' : '发布需求' }}
+        {{ submitting ? '提交中…' : '提交审核' }}
       </el-button>
     </div>
   </el-form>
@@ -250,28 +247,21 @@
 import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import taskApi from '@/task/taskApi'
-import { useUserStore } from '@/user/userStore'
+import { CAMPUSES, TYPE_CATEGORY_ID } from '@/common/labels'
 import { tutoringTotal } from '@/order/money'
 
 const props = defineProps({
   taskType: { type: String, required: true }
 })
 
-const emit = defineEmits(['submitted'])
+const emit = defineEmits(['submitted', 'cancel'])
 
 const formRef = ref(null)
 const submitting = ref(false)
-const userStore = useUserStore()
 const tutoringQuote = computed(() => {
   try { return tutoringTotal(form.pricePerHour, form.durationHours) }
   catch { return '—' }
 })
-const API_ORIGIN = 'http://localhost:8080'
-
-const uploadHeaders = computed(() => ({
-  Authorization: userStore.token ? `Bearer ${userStore.token}` : ''
-}))
-
 // 各类型占位符文本
 const titlePlaceholder = computed(() => {
   const map = {
@@ -349,6 +339,7 @@ const rules = computed(() => {
       { required: true, message: '请输入需求描述', trigger: 'blur' },
       { min: 10, max: 500, message: '描述长度需在10-500字符之间', trigger: 'blur' }
     ],
+    campus: [{ required: true, message: '请选择校区', trigger: 'change' }],
     deadline: [{ required: true, message: '请选择截止时间', trigger: 'change' }]
   }
 
@@ -378,13 +369,11 @@ const rules = computed(() => {
     return {
       ...base,
       tradeMode: [{ required: true, message: '请选择交易类型', trigger: 'change' }],
-      itemPrice:
-        form.tradeMode === 'SELL'
-          ? [
-              { required: true, message: '请输入物品金额', trigger: 'blur' },
-              { type: 'number', min: 0, message: '金额不能小于0', trigger: 'blur' }
-            ]
-          : []
+      // 出售与求购都需要约定总价：后端以 itemPrice 作为订单金额，缺失会被拒绝
+      itemPrice: [
+        { required: true, message: form.tradeMode === 'BUY' ? '请输入求购预算' : '请输入出售价格', trigger: 'blur' },
+        { type: 'number', min: 0, message: '金额不能小于0', trigger: 'blur' }
+      ]
     }
   }
   if (props.taskType === 'TEAM') {
@@ -407,26 +396,6 @@ const rules = computed(() => {
 
 function beforeToday(date) {
   return date.getTime() < Date.now() - 86400000
-}
-
-function normalizeFileUrl(url) {
-  if (!url) return ''
-  if (/^https?:\/\//i.test(url)) return url
-  return `${API_ORIGIN}${url}`
-}
-
-function beforeImageUpload(file) {
-  const allowTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp']
-  const isAllowedType = allowTypes.includes(file.type)
-  const isLt2M = file.size / 1024 / 1024 < 2
-
-  if (!isAllowedType) {
-    ElMessage.error('图片只能是 JPG / PNG / WebP 格式')
-  }
-  if (!isLt2M) {
-    ElMessage.error('图片大小不能超过 2MB')
-  }
-  return isAllowedType && isLt2M
 }
 
 // ── 草稿自动保存与恢复 ──
@@ -500,7 +469,7 @@ async function submitForm() {
     }
 
     const res = await taskApi.create(payload)
-    ElMessage.success('发布成功！')
+    ElMessage.success('需求已提交，等待管理员审核')
     clearDraft()
     const taskId = res.data?.data?.id
     emit('submitted', taskId)
@@ -511,97 +480,39 @@ async function submitForm() {
   }
 }
 
+/** 发布类型对应的分类 ID，见 common/labels 的 TYPE_CATEGORY_ID。 */
 function categoryIdForType(taskType) {
-  const map = { RUNNING: 1, TUTORING: 2, FLEA: 3, TEAM: 4, CONSULTING: 5 }
-  return map[taskType] || 1
+  return TYPE_CATEGORY_ID[taskType] || TYPE_CATEGORY_ID.RUNNING
 }
 </script>
 
 <style scoped>
-.task-form {
-  max-width: 100%;
+.form-section + .form-section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
 }
-
-.form-section {
-  margin-bottom: 32px;
-}
-
-.form-section:last-of-type {
-  margin-bottom: 0;
-}
-
 .section-title {
-  font-size: 16px;
+  margin: 0 0 16px;
+  font-size: var(--fs-lg);
   font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 20px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
-
 .form-row {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 20px;
 }
-
-@media (max-width: 600px) {
-  .form-row {
-    grid-template-columns: 1fr;
-  }
-}
-
-.form-col {
-  margin-bottom: 0;
-}
-
-/* 表单操作按钮 */
 .form-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  margin-top: 32px;
-  padding-top: 24px;
-  border-top: 1px solid var(--border-color);
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
 }
-
-.form-actions .el-button {
-  min-width: 120px;
-}
-
-/* Element Plus 表单样式覆盖 */
-:deep(.el-form-item__label) {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  margin-bottom: 8px;
-}
-
-:deep(.el-input__wrapper),
-:deep(.el-textarea__inner) {
-  border-radius: var(--radius-md) !important;
-  transition: all var(--transition-base);
-}
-
-:deep(.el-input__wrapper:hover),
-:deep(.el-textarea__inner:hover) {
-  box-shadow: 0 0 0 1px var(--primary) !important;
-}
-
-:deep(.el-input__wrapper.is-focus),
-:deep(.el-textarea__inner:focus) {
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2) !important;
-}
-
-:deep(.el-textarea__inner) {
-  padding: 12px 14px;
-  line-height: 1.6;
-}
-
-:deep(.el-select__wrapper) {
-  border-radius: var(--radius-md) !important;
+.form-actions .el-button { min-width: 112px; }
+:deep(.el-form-item__label) { font-weight: 500; color: var(--ink); }
+@media (max-width: 600px) {
+  .form-row { grid-template-columns: 1fr; }
 }
 </style>

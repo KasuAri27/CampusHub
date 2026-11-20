@@ -1,8 +1,8 @@
 <template>
-  <el-dialog v-model="visible" title="评价服务方" width="420px" :close-on-click-modal="false">
+  <el-dialog v-model="visible" title="评价服务方" width="420px" append-to-body :close-on-click-modal="false">
     <div class="review-content">
       <div class="score-section">
-        <div class="label">请为本次服务打分</div>
+        <div class="label">为这次服务打分</div>
         <el-rate
             v-model="score"
             :max="5"
@@ -10,14 +10,15 @@
             :texts="['很差', '较差', '一般', '满意', '非常满意']"
             size="large"
         />
+        <p class="rule">五星为对方加 1 分信用分，一、二星扣 1 分，三、四星不变。</p>
       </div>
 
-      <el-form-item label="评价内容（可选）">
+      <el-form-item label="评价内容（可选）" label-position="top">
         <el-input
             v-model="comment"
             type="textarea"
             :rows="4"
-            placeholder="说说这次服务的感受..."
+            placeholder="说说这次服务的情况"
             maxlength="200"
             show-word-limit
         />
@@ -58,7 +59,7 @@ const submitReview = async () => {
   submitting.value = true
   try {
     await reviewApi.submit(props.orderId, score.value, comment.value)
-    ElMessage.success('评价成功，感谢你的反馈！')
+    ElMessage.success('评价已提交')
     emit('submitted')
     visible.value = false
   } catch (e) {
@@ -77,8 +78,13 @@ const submitReview = async () => {
   margin-bottom: 24px;
 }
 .label {
-  font-size: 14px;
-  color: var(--text-secondary);
-  margin-bottom: 12px;
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+  margin-bottom: 8px;
+}
+.rule {
+  margin-top: 8px;
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
 }
 </style>

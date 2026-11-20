@@ -1,17 +1,25 @@
 <template>
-  <el-dialog :model-value="visible" title="订单付款" width="400px" @update:model-value="emit('update:visible', $event)">
-    <p>应付金额：¥{{ order.amountDue }}</p>
-    <p v-if="!channels.length">支付暂不可用，请联系平台处理。</p>
-    <template v-else>
-      <p>每笔订单请使用同一支付渠道，避免重复付款。</p>
-      <el-button v-for="channel in channels" :key="channel" :loading="loading" @click="create(channel)">
-        {{ channel === 'WECHAT' ? '微信支付' : '支付宝' }}
-      </el-button>
-    </template>
-    <div v-if="qrCode" class="payment-code">
-      <img :src="qrCode" alt="本订单支付二维码" width="240" height="240" />
-      <p>请使用对应支付应用扫码。付款结果以后台确认为准。</p>
-      <el-button :loading="checking" @click="check">查询付款结果</el-button>
+  <el-dialog :model-value="visible" title="付款" width="420px" append-to-body @update:model-value="emit('update:visible', $event)">
+    <div class="pay">
+      <p class="pay-label">应付金额</p>
+      <p class="pay-amount"><span class="yen">¥</span><span class="num">{{ formatMoney(order.amountDue) }}</span></p>
+      <p class="pay-title">{{ order.title }}</p>
+
+      <p v-if="!channels.length" class="pay-off">支付渠道暂未开通，请通过“提出异议或投诉”联系平台处理。</p>
+      <template v-else-if="!qrCode">
+        <p class="pay-note">选择支付方式后生成收款码。同一笔订单请始终使用同一个渠道，避免重复付款。</p>
+        <div class="channels">
+          <el-button v-for="channel in channels" :key="channel" size="large" :loading="loading" @click="create(channel)">
+            {{ PAYMENT_CHANNEL[channel] || channel }}
+          </el-button>
+        </div>
+      </template>
+
+      <div v-if="qrCode" class="payment-code">
+        <img :src="qrCode" alt="本订单的支付二维码" width="220" height="220" />
+        <p>用对应的支付应用扫码付款。付款结果以平台收到的渠道通知为准，页面会自动刷新结果。</p>
+        <el-button :loading="checking" @click="check">我已付款，查询结果</el-button>
+      </div>
     </div>
   </el-dialog>
 </template>
@@ -21,6 +29,8 @@ import { ref, watch, onUnmounted } from 'vue'
 import QRCode from 'qrcode'
 import { ElMessage } from 'element-plus'
 import http from '@/common/http'
+import { formatMoney } from '@/common/format'
+import { PAYMENT_CHANNEL } from '@/common/labels'
 
 const props = defineProps({ visible: Boolean, order: { type: Object, required: true } })
 const emit = defineEmits(['update:visible', 'paid'])
@@ -80,6 +90,17 @@ onUnmounted(() => { generation++; stop() })
 </script>
 
 <style scoped>
-.payment-code { margin-top: 16px; text-align: center; }
-.payment-code p { margin: 12px 0; }
+.pay { text-align: center; }
+.pay-label { color: var(--ink-2); font-size: var(--fs-sm); }
+.pay-amount { color: var(--amber-ink); font-weight: 600; }
+.pay-amount .yen { font-size: var(--fs-lg); margin-right: 2px; }
+.pay-amount .num { font-size: 40px; line-height: 1.2; }
+.pay-title { margin-top: 2px; color: var(--ink-2); font-size: var(--fs-sm); }
+.pay-note, .pay-off { margin: 18px 0 14px; color: var(--ink-2); font-size: var(--fs-sm); text-align: left; }
+.pay-off { padding: 10px 12px; background: var(--apricot-wash); color: var(--amber-ink); border-radius: 6px; }
+.channels { display: flex; gap: 10px; }
+.channels .el-button { flex: 1; margin: 0; }
+.payment-code { margin-top: 18px; }
+.payment-code img { border: 1px solid var(--line); border-radius: 6px; }
+.payment-code p { margin: 12px 0; color: var(--ink-2); font-size: var(--fs-sm); }
 </style>

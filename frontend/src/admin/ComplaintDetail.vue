@@ -1,24 +1,31 @@
 <template>
-  <div class="complaint-detail" v-loading="loading">
-    <button class="back-btn" @click="$router.push('/admin')">← 返回</button>
-    <h2>投诉详情</h2>
-    <el-card v-if="complaint" shadow="never" style="margin-top:16px">
-      <el-descriptions :column="1" border>
-        <el-descriptions-item label="投诉ID">{{ complaint.id }}</el-descriptions-item>
-        <el-descriptions-item label="投诉人ID">{{ complaint.complainantId }}</el-descriptions-item>
-        <el-descriptions-item label="被投诉人ID">{{ complaint.targetId }}</el-descriptions-item>
-        <el-descriptions-item label="关联订单ID">{{ complaint.orderId }}</el-descriptions-item>
-        <el-descriptions-item label="投诉理由">{{ complaint.reason }}</el-descriptions-item>
-        <el-descriptions-item label="详细描述">{{ complaint.description || '无' }}</el-descriptions-item>
-        <el-descriptions-item label="提交时间">{{ complaint.createTime }}</el-descriptions-item>
-      </el-descriptions>
-      <div v-if="complaint.imageUrl" style="margin-top:16px">
-        <h4>证据图片</h4>
-        <img :src="'http://localhost:8080' + complaint.imageUrl"
-          style="max-width:100%;max-height:400px;border:1px solid #ddd;border-radius:8px" />
+  <div v-loading="loading">
+    <button class="back-link" type="button" @click="$router.back()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+      返回
+    </button>
+    <PageHeader title="投诉详情" description="核对双方说法与订单记录；涉及付款义务的争议在“交易与结算”中裁决。">
+      <template #actions>
+        <el-button @click="$router.push('/admin/finance?view=dispute')">去裁决争议</el-button>
+      </template>
+    </PageHeader>
+
+    <div v-if="complaint" class="panel body">
+      <dl class="facts">
+        <dt>投诉编号</dt><dd class="num">#{{ complaint.id }}</dd>
+        <dt>关联订单</dt><dd class="num">#{{ complaint.orderId }}</dd>
+        <dt>投诉人</dt><dd>用户 #{{ complaint.complainantId }}</dd>
+        <dt>被投诉人</dt><dd>用户 #{{ complaint.targetId }}</dd>
+        <dt>提交时间</dt><dd>{{ formatDateTime(complaint.createTime) }}</dd>
+        <dt>原因</dt><dd><StatusTag :label="complaint.reason" tone="danger" /></dd>
+        <dt>具体情况</dt><dd class="desc">{{ complaint.description || '未填写' }}</dd>
+      </dl>
+      <div v-if="complaint.imageUrl" class="evidence">
+        <p>证据图片</p>
+        <el-image :src="assetUrl(complaint.imageUrl)" :preview-src-list="[assetUrl(complaint.imageUrl)]" fit="contain" preview-teleported />
       </div>
-    </el-card>
-    <el-empty v-else description="投诉不存在" />
+    </div>
+    <EmptyState v-else-if="!loading" title="找不到这条投诉" description="编号可能有误，或投诉记录已被清理。" />
   </div>
 </template>
 
@@ -26,20 +33,41 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import http from '@/common/http'
+import PageHeader from '@/common/ui/PageHeader.vue'
+import StatusTag from '@/common/ui/StatusTag.vue'
+import EmptyState from '@/common/ui/EmptyState.vue'
+import { formatDateTime } from '@/common/format'
+import { assetUrl } from '@/common/assetUrl'
 
+/** 投诉详情（GET /v1/complaints/{id}，仅订单当事人与管理员可查）。证据图片走同源相对地址（K6）。 */
 const route = useRoute()
 const loading = ref(true)
 const complaint = ref(null)
 
 onMounted(async () => {
   try {
-    const res = await http.get(`/complaints/${route.params.id}`)
-    complaint.value = res.data?.data
-  } finally { loading.value = false }
+    complaint.value = (await http.get(`/complaints/${route.params.id}`)).data?.data || null
+  } catch {
+    complaint.value = null
+  } finally {
+    loading.value = false
+  }
 })
 </script>
 
 <style scoped>
-.complaint-detail { max-width: 800px; margin: 0 auto; }
-.back-btn { border: none; background: none; color: #409eff; cursor: pointer; font-size: 14px; padding: 0; margin-bottom: 8px; }
+.back-link { margin-bottom: 8px; }
+.body { padding: 20px 22px; }
+.facts {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 10px 16px;
+  margin: 0;
+}
+.facts dt { color: var(--ink-2); font-size: var(--fs-sm); }
+.facts dd { margin: 0; }
+.desc { white-space: pre-wrap; max-width: 64ch; }
+.evidence { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.evidence p { color: var(--ink-2); font-size: var(--fs-sm); margin-bottom: 8px; }
+.evidence .el-image { max-width: 100%; max-height: 420px; border: 1px solid var(--line); border-radius: 8px; }
 </style>

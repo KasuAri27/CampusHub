@@ -1,42 +1,37 @@
 <template>
-  <div class="my-tasks-page">
-    <div class="page-header">
-      <div class="header-content">
-        <h1 class="page-title">我的需求</h1>
-        <p class="page-subtitle">我发布的和我接单的需求都在这里</p>
-      </div>
+  <div class="my-tasks page">
+    <PageHeader title="我的需求" description="你发布的需求和接下的单都在这里；付款、验收等履约操作在“我的订单”里完成。">
+      <template #actions>
+        <el-button v-if="userStore.isUser" type="primary" @click="$router.push('/tasks/publish')">发布需求</el-button>
+      </template>
+    </PageHeader>
 
-      <div class="custom-tabs">
-        <button
-          v-for="item in tabs"
-          :key="item.key"
-          class="tab-btn"
-          :class="{ active: tab === item.key }"
-          @click="tab = item.key"
-        >
-          {{ item.label }}
-          <span class="tab-count" v-if="lists[item.key].length">{{ lists[item.key].length }}</span>
-        </button>
-      </div>
+    <div class="tabs" role="tablist" aria-label="需求筛选">
+      <button
+        v-for="item in tabs"
+        :key="item.key"
+        type="button"
+        role="tab"
+        class="tab"
+        :class="{ on: tab === item.key }"
+        :aria-selected="tab === item.key"
+        @click="tab = item.key"
+      >
+        {{ item.label }}
+        <span v-if="lists[item.key].length" class="count num">{{ lists[item.key].length }}</span>
+      </button>
     </div>
 
-    <div v-if="loading" class="loading-state">
-      <div class="loading-spinner"></div>
-      <p>正在加载...</p>
+    <div v-if="loading" class="grid">
+      <div v-for="n in 3" :key="n" class="skeleton panel"><el-skeleton :rows="3" animated /></div>
     </div>
-
-    <div v-else-if="filtered.length === 0" class="empty-state">
-      <div class="empty-icon">☆</div>
-      <h3>{{ emptyText[tab][0] }}</h3>
-      <p>{{ emptyText[tab][1] }}</p>
-      <router-link v-if="tab === 'published' && !userStore.isAdmin" to="/tasks/publish" class="empty-action">
-        去发布一个需求
-      </router-link>
+    <EmptyState v-else-if="!filtered.length" :title="emptyText[tab][0]" :description="emptyText[tab][1]">
+      <el-button v-if="tab === 'published' && userStore.isUser" type="primary" @click="$router.push('/tasks/publish')">发布需求</el-button>
+      <el-button v-else-if="tab === 'accepted'" @click="$router.push('/')">去需求广场</el-button>
+    </EmptyState>
+    <div v-else class="grid">
+      <TaskCard v-for="t in filtered" :key="t.cardKey" :task="t" />
     </div>
-
-    <TransitionGroup v-else name="card-list" tag="div" class="task-grid">
-      <TaskCard v-for="(t, index) in filtered" :key="t.cardKey" :task="t" :style="{ '--delay': index * 0.05 + 's' }" />
-    </TransitionGroup>
   </div>
 </template>
 
@@ -53,6 +48,8 @@ import { ref, computed, onMounted } from 'vue'
 import taskApi from '@/task/taskApi'
 import orderApi from '@/order/orderApi'
 import TaskCard from '@/task/TaskCard.vue'
+import PageHeader from '@/common/ui/PageHeader.vue'
+import EmptyState from '@/common/ui/EmptyState.vue'
 import { useUserStore } from '@/user/userStore'
 
 const userStore = useUserStore()
@@ -64,7 +61,7 @@ const acceptedTasks = ref([])
 const tabs = [
   { key: 'published', label: '我发布的' },
   { key: 'accepted', label: '我接单的' },
-  { key: 'waiting', label: '待接单' },
+  { key: 'waiting', label: '等人接单' },
   { key: 'inProgress', label: '进行中' },
   { key: 'completed', label: '已完成' }
 ]
@@ -139,191 +136,57 @@ onMounted(fetchData)
 </script>
 
 <style scoped>
-.my-tasks-page {
-  animation: fade-in 0.5s ease;
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.page-header {
-  margin-bottom: 32px;
-}
-
-.header-content {
-  text-align: center;
-  padding: 24px 0 32px;
-}
-
-.page-title {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0 0 8px;
-}
-
-.page-subtitle {
-  font-size: 15px;
-  color: var(--text-secondary);
-  margin: 0;
-}
-
-.custom-tabs {
+.tabs {
   display: flex;
-  justify-content: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
-
-.tab-btn {
-  display: inline-flex;
+.tab {
+  position: relative;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-full);
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  font-size: 14px;
+  gap: 6px;
+  padding: 10px 14px;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
   font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
-  transition: all var(--transition-base);
 }
-
-.tab-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
+.tab:hover { color: var(--ink); }
+.tab.on { color: var(--pine); font-weight: 700; }
+.tab.on::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 0;
+  height: 3px;
+  background: var(--apricot);
+  border-radius: 2px 2px 0 0;
 }
-
-.tab-btn.active {
-  background: linear-gradient(135deg, var(--primary), var(--primary-light));
-  border-color: transparent;
-  color: white;
+.count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: #eef2f0;
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  line-height: 18px;
+  text-align: center;
 }
-
-.tab-count {
-  background: rgba(255, 255, 255, 0.2);
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.tab-btn:not(.active) .tab-count {
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-}
-
-.loading-state,
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 300px;
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
-
-.loading-spinner {
-  width: 48px;
-  height: 48px;
-  border: 3px solid var(--border-color);
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.empty-icon {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-  font-size: 28px;
-}
-
-.empty-state h3 {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.empty-state p {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin: 0 0 8px;
-}
-
-.empty-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px 24px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--primary), var(--primary-light));
-  color: #fff;
-  text-decoration: none;
-  font-weight: 600;
-}
-
-.task-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 20px;
-}
-
-@media (max-width: 1200px) {
-  .task-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 900px) {
-  .task-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 600px) {
-  .task-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.card-list-enter-active {
-  transition: all 0.4s ease;
-  transition-delay: var(--delay, 0s);
-}
-
-.card-list-leave-active {
-  transition: all 0.3s ease;
-}
-
-.card-list-enter-from,
-.card-list-leave-to {
-  opacity: 0;
-  transform: translateY(20px) scale(0.95);
-}
-
-.card-list-move {
-  transition: transform 0.3s ease;
-}
+.skeleton { padding: 18px; }
+@media (max-width: 1024px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
 </style>
