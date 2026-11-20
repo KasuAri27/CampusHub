@@ -50,6 +50,8 @@ public class SecurityConfig {
                         // 游客可读：任务列表与详情、分类、上传的图片与头像
                         .requestMatchers("/v1/tasks/mine/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/v1/tasks/**", "/v1/categories", "/uploads/**").permitAll()
+                        // API 契约 6.2：查询订单评价公开展示，免登录；提交评价（POST /v1/reviews/submit）仍需登录。
+                        .requestMatchers(HttpMethod.GET, "/v1/reviews/order/**").permitAll()
                         // 账号相关：注册、密码登录、短信登录、验证码
                         .requestMatchers("/v1/auth/register", "/v1/auth/login/**", "/v1/verification/**").permitAll()
                         // 支付回调只放行精确的 POST 路径，真实性由官方 SDK 的渠道验签保证。
