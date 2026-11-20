@@ -73,7 +73,9 @@ async function handleKeepGroup() {
     await chatApi.keepGroup(activeConvId.value)
     ElMessage.success('已保留群聊')
     store.fetchConversations()
-  } catch { ElMessage.error('操作失败') }
+  } catch {
+    // 失败原因（如无权保留）已由请求拦截器按后端 message 提示，这里不再重复弹出笼统提示
+  }
 }
 
 async function handleDismissGroup() {
@@ -91,7 +93,9 @@ async function dismissConv(convId) {
     ElMessage.success('已删除')
     if (activeConvId.value === convId) activeConvId.value = null
     store.fetchConversations()
-  } catch { ElMessage.error('操作失败') }
+  } catch {
+    // 失败原因（如无权解散）已由请求拦截器按后端 message 提示
+  }
 }
 
 function handleRecall(msg) {
