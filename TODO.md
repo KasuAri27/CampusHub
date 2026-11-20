@@ -11,6 +11,7 @@
 - **改进目标**：
   - 在 `Task.TaskStatus` 枚举及数据库中新增独立状态 `rejected`；
   - 任务被驳回后状态变更为 `rejected`，发布者可在个人中心查阅驳回原因并支持“修改后重新提交审核”，避免重新从头录入全部表单。
+- **进展**：2026-11-20 契约修订已批准并写入（API 契约 §3 状态总述、3.3 可见性、3.6 修改并重新提交、§9 驳回；模块契约 §7 预留迁移 M006）。分工：task 做表结构、实体、服务与接口（同批合并）→ admin 补管理端驳回理由与状态筛选 → Frontend 做被驳回分栏与编辑重提页面。
 
 ---
 
@@ -52,16 +53,16 @@
 
 | 优先级 | 编号 | 任务 | 负责分支 | 前置 |
 | --- | --- | --- | --- | --- |
-| P0 | 安全 | 上传接口不校验类型与扩展名，原扩展名保存后经 `/uploads/**` 同源公开访问，可上传 HTML/SVG 造成存储型 XSS（可读取前端 localStorage 中的 JWT）；无扩展名文件名会抛 500。改为图片类型与扩展名白名单、服务端重命名、响应加 `X-Content-Type-Options: nosniff` | user | 修复后在 API 契约 §11 写明允许的类型 |
+| P0 | 安全 | 上传接口不校验类型与扩展名，原扩展名保存后经 `/uploads/**` 同源公开访问，可上传 HTML/SVG 造成存储型 XSS（可读取前端 localStorage 中的 JWT）；无扩展名文件名会抛 500。改为图片类型与扩展名白名单、服务端重命名、响应加 `X-Content-Type-Options: nosniff` | user | 允许类型已写入 API 契约 §11 |
 | P0 | K9 | 管理员逾期处置选择封禁时，改为转调 `UserService.ban(userId, adminId)`（模块契约 §3.4），交易核心不再直接 `setStatus`；自动逾期仍只扣 10 分并升级给管理员 | user + task | 契约已批准，user 先实现 `ban`，task 再改调用 |
-| P0 | 隐私 | 公开的需求详情接口向所有人返回 `pickupCode`，改为仅发布者与接单人可见 | task | 修复时在 API 契约 3.3 补可见性说明 |
+| P0 | 隐私 | 公开的需求详情接口向所有人返回 `pickupCode`，改为仅发布者与接单人可见 | task | 可见性已写入 API 契约 3.3 |
 | P1 | K10 | chat 不再读取订单状态，改读 `TaskChatView.hasOpenObligations`（模块契约 §3.6） | chat + task | 契约已批准，迁移步骤见模块契约 §9 |
 | P1 | K3 | `ChatIntegrationService` 参数由 Task 实体改为标量（模块契约 §3.3），chat 读需求改经 `TaskReadService`（§3.6） | chat + task | 契约已批准，与 K10 同一迁移顺序 |
 | P1 | K12 | 代码按 API 契约修正：发布时校验校区必填；广场未传 status 默认 `published`；keyword 同时匹配描述 | task | — |
 | P1 | K12 | `GET /v1/reviews/order/**` 按契约 6.2 免登录（SecurityConfig 白名单） | user | — |
 | P1 | Bug | `OrderService.toDTO` 对懒加载代理用 `instanceof` 判断类型，`taskType` 恒为 `SERVICE`；改为先还原实体或读辨别列 | task | — |
 | P1 | K11 | 控制器不再自拼 `ApiResponse.error`，改抛 `BusinessException` | chat（ConversationController）+ user（FileController） | — |
-| P1 | K1 遗留 | 分类增删改仍由 AdminService 直写 `categoryRepository`，决定是否改走交易核心的分类服务；删除被引用分类时给出明确原因 | admin + task | 方案待用户决定 |
+| P1 | K1 遗留 | 分类增删改仍由 AdminService 直写 `categoryRepository`，决定是否改走交易核心的分类服务；删除被引用分类时给出明确原因 | admin + task | 方案已定：交易核心新增 `CategoryService`，admin 改调用（模块契约 §9） |
 | P2 | K4 | `OrderLifecycleService` 全限定名直引支付、投诉仓库，交易核心内部治理 | task | — |
 | P2 | K5 | 前端规则副本同步：后端改规则必须通知 Frontend 并同步 `orderPolicy.js`、`orderFlow.js` 及单测；长期可提供规则查询接口 | task + Frontend | 规则查询接口须走 §8 |
 | 收尾 | K6、K8 | 已在 Frontend 分支修复（80f57aa），随 Frontend 合入 main 后关闭 | Frontend | 合并须用户批准 |
