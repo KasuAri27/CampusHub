@@ -187,11 +187,11 @@ class CommerceFlowIntegrationTest {
     }
     /** 后台需求审核/删除改走 TaskService 后，真实过滤器与数据库下的状态前置、重复操作与审计保留规则。 */
     @Test void adminTaskModerationGoesThroughDomainServiceWithStateGuards() throws Exception {
-        // 待审核需求：驳回成功并变成 cancelled，重复驳回与事后通过均被状态前置拒绝。
+        // 待审核需求：驳回成功并变成 rejected，重复驳回与事后通过均被状态前置拒绝。
         long rejected = response(mvc.perform(post("/v1/tasks").header("Authorization", token(requester)).contentType(MediaType.APPLICATION_JSON)
                 .content(validTask().toString())).andExpect(status().isCreated())).path("data").path("id").asLong();
         mvc.perform(put("/v1/admin/tasks/{id}/reject", rejected).header("Authorization", token(admin)).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"reason\":\"描述不清\"}")).andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("cancelled"));
+                .content("{\"reason\":\"描述不清\"}")).andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("rejected"));
         mvc.perform(put("/v1/admin/tasks/{id}/reject", rejected).header("Authorization", token(admin))).andExpect(status().isBadRequest());
         mvc.perform(put("/v1/admin/tasks/{id}/approve", rejected).header("Authorization", token(admin))).andExpect(status().isBadRequest());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notifications WHERE receiver_id = ? AND type = 'TASK_REVIEW_RESULT' AND content LIKE '%描述不清%'",
@@ -322,6 +322,70 @@ class CommerceFlowIntegrationTest {
         Map<Long, String> acceptedTypes = new HashMap<>();
         accepted.path("data").forEach(o -> acceptedTypes.put(o.path("orderId").asLong(), o.path("taskType").asText()));
         assertThat(acceptedTypes).containsEntry(teamOrder, "TEAM").containsEntry(fleaOrder, "FLEA").containsEntry(serviceOrder, "SERVICE");
+    }
+
+    /** TODO §1.1：驳回 → rejected 保存理由 → 发布者修改重新提交；可见性与权限在真实过滤器下验证。 */
+    @Test void rejectedTaskKeepsReasonVisibleOnlyToOwnerAndAdminAndCanBeEditedAndResubmitted() throws Exception {
+        User stranger = seed("str", User.Role.user);
+        long id = response(mvc.perform(post("/v1/tasks").header("Authorization", token(requester)).contentType(MediaType.APPLICATION_JSON)
+                .content(validTask().toString())).andExpect(status().isCreated())).path("data").path("id").asLong();
+        mvc.perform(put("/v1/admin/tasks/{id}/reject", id).header("Authorization", token(admin)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"请补充取件时间\"}")).andExpect(status().isOk());
+
+        // 详情可见性：陌生人与匿名 404；发布者与管理员能看到状态与驳回理由。
+        mvc.perform(get("/v1/tasks/{id}", id)).andExpect(status().isNotFound());
+        mvc.perform(get("/v1/tasks/{id}", id).header("Authorization", token(stranger))).andExpect(status().isNotFound());
+        mvc.perform(get("/v1/tasks/{id}", id).header("Authorization", token(requester)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("rejected")).andExpect(jsonPath("$.data.rejectReason").value("请补充取件时间"));
+        mvc.perform(get("/v1/tasks/{id}", id).header("Authorization", token(admin)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.rejectReason").value("请补充取件时间"));
+        // 列表：广场与关键词搜索都不返回被驳回需求；“我发布的”带理由。
+        assertThat(response(mvc.perform(get("/v1/tasks"))).path("data").path("items")).isEmpty();
+        assertThat(response(mvc.perform(get("/v1/tasks").param("status", "rejected").param("keyword", "代取"))).path("data").path("items")).isEmpty();
+        assertThat(response(mvc.perform(get("/v1/tasks").param("status", "rejected").header("Authorization", token(stranger)))).path("data").path("items")).isEmpty();
+        JsonNode mine = response(mvc.perform(get("/v1/tasks/mine/published").header("Authorization", token(requester))));
+        assertThat(mine.path("data").path("items").get(0).path("status").asText()).isEqualTo("rejected");
+        assertThat(mine.path("data").path("items").get(0).path("rejectReason").asText()).isEqualTo("请补充取件时间");
+
+        // PUT：未登录 401，非发布者 403，类型/分类不可改 400。
+        ObjectNode edit = validTask();
+        edit.put("title", "请帮忙代取测试快递（已补充）");
+        edit.put("pickupCode", "Z-9");
+        mvc.perform(put("/v1/tasks/{id}", id).contentType(MediaType.APPLICATION_JSON).content(edit.toString())).andExpect(status().isUnauthorized());
+        mvc.perform(put("/v1/tasks/{id}", id).header("Authorization", token(stranger)).contentType(MediaType.APPLICATION_JSON).content(edit.toString()))
+                .andExpect(status().isForbidden());
+        ObjectNode otherType = edit.deepCopy();
+        otherType.put("taskType", "CONSULTING");
+        mvc.perform(put("/v1/tasks/{id}", id).header("Authorization", token(requester)).contentType(MediaType.APPLICATION_JSON).content(otherType.toString()))
+                .andExpect(status().isBadRequest());
+        ObjectNode otherCategory = edit.deepCopy();
+        otherCategory.put("categoryId", category.getId() + 100);
+        mvc.perform(put("/v1/tasks/{id}", id).header("Authorization", token(requester)).contentType(MediaType.APPLICATION_JSON).content(otherCategory.toString()))
+                .andExpect(status().isBadRequest());
+
+        // 修改成功：回到待审核、清空理由、通知管理员重新审核。
+        mvc.perform(put("/v1/tasks/{id}", id).header("Authorization", token(requester)).contentType(MediaType.APPLICATION_JSON).content(edit.toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("pending_review"))
+                .andExpect(jsonPath("$.data.title").value("请帮忙代取测试快递（已补充）"))
+                .andExpect(jsonPath("$.data.pickupCode").value("Z-9")).andExpect(jsonPath("$.data.rejectReason").doesNotExist());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notifications WHERE receiver_id = ? AND type = 'TASK_REVIEW' AND title LIKE '需求已修改待重新审核%'",
+                Integer.class, admin.getId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT reject_reason FROM tasks WHERE id = ?", String.class, id)).isNull();
+
+        // 待审核期间仍可再改；管理员通过后不能再改（409）；通过后的需求恢复公开可见。
+        mvc.perform(put("/v1/tasks/{id}", id).header("Authorization", token(requester)).contentType(MediaType.APPLICATION_JSON).content(edit.toString()))
+                .andExpect(status().isOk());
+        mvc.perform(put("/v1/admin/tasks/{id}/approve", id).header("Authorization", token(admin))).andExpect(status().isOk());
+        mvc.perform(put("/v1/tasks/{id}", id).header("Authorization", token(requester)).contentType(MediaType.APPLICATION_JSON).content(edit.toString()))
+                .andExpect(status().isConflict());
+        mvc.perform(get("/v1/tasks/{id}", id)).andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("published"));
+
+        // 被驳回的需求发布者可直接删除（无订单，物理移除）。
+        long second = response(mvc.perform(post("/v1/tasks").header("Authorization", token(requester)).contentType(MediaType.APPLICATION_JSON)
+                .content(validTask().toString())).andExpect(status().isCreated())).path("data").path("id").asLong();
+        mvc.perform(put("/v1/admin/tasks/{id}/reject", second).header("Authorization", token(admin))).andExpect(status().isOk());
+        mvc.perform(delete("/v1/tasks/{id}", second).header("Authorization", token(requester))).andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM tasks WHERE id = ?", Integer.class, second)).isZero();
     }
 
     @Test void unpaidDebtDeductsExactlyOnceThenAdministratorCanApplyAuditedPenalty() throws Exception {

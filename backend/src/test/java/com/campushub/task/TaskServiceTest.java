@@ -122,13 +122,15 @@ class TaskServiceTest {
     }
 
     @Test
-    void rejectByAdminCancelsAndAppendsReasonToNotification() {
+    void rejectByAdminMarksRejectedStoresReasonAndNotifies() {
         Task task = task(10L, user(1L, Role.user), TaskStatus.pending_review, category(3, true));
         when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
 
-        taskService.rejectByAdmin(10L, "描述不清");
+        taskService.rejectByAdmin(10L, "  描述不清  ");
 
-        assertThat(task.getStatus()).isEqualTo(TaskStatus.cancelled);
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.rejected);
+        assertThat(task.getRejectReason()).isEqualTo("描述不清");
+        assertThat(task.getRejectedAt()).isEqualTo(LocalDateTime.of(2026, 11, 16, 9, 30));
         verify(notificationService).createNotification(
                 org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq("需求审核结果"),
                 org.mockito.ArgumentMatchers.argThat(c -> c.contains("已被驳回") && c.contains("驳回理由：描述不清")),
@@ -136,8 +138,125 @@ class TaskServiceTest {
     }
 
     @Test
+    void rejectByAdminRefusesReasonLongerThan200Chars() {
+        Task task = task(10L, user(1L, Role.user), TaskStatus.pending_review, category(3, true));
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
+
+        assertThatThrownBy(() -> taskService.rejectByAdmin(10L, "字".repeat(201)))
+                .isInstanceOf(BusinessException.class).extracting("code").isEqualTo(400);
+
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.pending_review);
+    }
+
+    @Test
+    void updateOwnTaskResubmitsRejectedTaskClearsReasonAndNotifiesAdmins() {
+        User requester = user(1L, Role.user);
+        requester.setStatus(1);
+        ExpressTask task = (ExpressTask) task(10L, requester, TaskStatus.rejected, category(3, true));
+        task.setRejectReason("描述不清");
+        task.setRejectedAt(LocalDateTime.of(2026, 11, 15, 8, 0));
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(requester));
+        when(taskRepository.save(any(Task.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(userRepository.findAll()).thenReturn(List.of(requester, user(9L, Role.admin)));
+        TaskCreateRequest request = createRequest();
+        request.setTitle("修改后的快递代取需求");
+        request.setCampus("鼓楼校区");
+
+        TaskDTO dto = taskService.updateOwnTask(1L, 10L, request);
+
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.pending_review);
+        assertThat(task.getRejectReason()).isNull();
+        assertThat(task.getRejectedAt()).isNull();
+        assertThat(task.getTitle()).isEqualTo("修改后的快递代取需求");
+        assertThat(task.getExpressReward()).isEqualByComparingTo("5.00");
+        assertThat(dto.getStatus()).isEqualTo("pending_review");
+        assertThat(dto.getRejectReason()).isNull();
+        verify(notificationService).createNotification(
+                org.mockito.ArgumentMatchers.eq(9L), org.mockito.ArgumentMatchers.contains("重新审核"),
+                any(), org.mockito.ArgumentMatchers.eq("TASK_REVIEW"));
+    }
+
+    @Test
+    void updateOwnTaskRejectsNonOwnerWrongStateTypeAndCategoryChange() {
+        User requester = user(1L, Role.user);
+        requester.setStatus(1);
+        Category category = category(3, true);
+        ExpressTask pending = (ExpressTask) task(10L, requester, TaskStatus.rejected, category);
+        ExpressTask published = (ExpressTask) task(11L, requester, TaskStatus.published, category);
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(pending));
+        when(taskRepository.findLockedById(11L)).thenReturn(Optional.of(published));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(requester));
+
+        // 非发布者
+        assertThatThrownBy(() -> taskService.updateOwnTask(2L, 10L, createRequest()))
+                .isInstanceOf(BusinessException.class).extracting("code").isEqualTo(403);
+        // 已发布的需求不能改
+        assertThatThrownBy(() -> taskService.updateOwnTask(1L, 11L, createRequest()))
+                .isInstanceOf(BusinessException.class).extracting("code").isEqualTo(409);
+        // 类型与分类不能改
+        TaskCreateRequest otherType = createRequest();
+        otherType.setTaskType("FLEA");
+        assertThatThrownBy(() -> taskService.updateOwnTask(1L, 10L, otherType))
+                .isInstanceOf(BusinessException.class).hasMessage("需求类型不能修改");
+        TaskCreateRequest otherCategory = createRequest();
+        otherCategory.setCategoryId(4);
+        assertThatThrownBy(() -> taskService.updateOwnTask(1L, 10L, otherCategory))
+                .isInstanceOf(BusinessException.class).hasMessage("需求分类不能修改");
+
+        assertThat(pending.getStatus()).isEqualTo(TaskStatus.rejected);
+        verify(taskRepository, never()).save(any());
+    }
+
+    @Test
+    void updateOwnTaskRequiresActiveAccountWithCreditAtLeast70() {
+        User lowCredit = user(1L, Role.user);
+        lowCredit.setStatus(1);
+        lowCredit.setCreditScore(69);
+        ExpressTask task = (ExpressTask) task(10L, lowCredit, TaskStatus.rejected, category(3, true));
+        when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(lowCredit));
+
+        assertThatThrownBy(() -> taskService.updateOwnTask(1L, 10L, createRequest()))
+                .isInstanceOf(BusinessException.class).extracting("code").isEqualTo(403);
+    }
+
+    @Test
+    void moderationStateTasksAreHiddenFromStrangersButVisibleToRequesterAndAdmin() {
+        User requester = user(1L, Role.user);
+        ExpressTask task = (ExpressTask) task(10L, requester, TaskStatus.rejected, category(3, true));
+        task.setRejectReason("描述不清");
+        when(taskRepository.findByIdWithDetails(10L)).thenReturn(Optional.of(task));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(user(2L, Role.user)));
+        when(userRepository.findById(9L)).thenReturn(Optional.of(user(9L, Role.admin)));
+
+        assertThatThrownBy(() -> taskService.getTaskDetail(10L, null)).isInstanceOf(BusinessException.class).extracting("code").isEqualTo(404);
+        assertThatThrownBy(() -> taskService.getTaskDetail(10L, 2L)).isInstanceOf(BusinessException.class).extracting("code").isEqualTo(404);
+        assertThat(taskService.getTaskDetail(10L, 1L).getRejectReason()).isEqualTo("描述不清");
+        assertThat(taskService.getTaskDetail(10L, 9L).getRejectReason()).isEqualTo("描述不清");
+        // 同样的规则覆盖 pending_review
+        task.setStatus(TaskStatus.pending_review);
+        assertThatThrownBy(() -> taskService.getTaskDetail(10L, 2L)).isInstanceOf(BusinessException.class).extracting("code").isEqualTo(404);
+    }
+
+    @Test
+    void deleteOwnTaskAllowsRejectedTaskButNotPendingReview() {
+        User requester = user(1L, Role.user);
+        Task rejected = task(10L, requester, TaskStatus.rejected, category(3, true));
+        Task pending = task(11L, requester, TaskStatus.pending_review, category(3, true));
+        when(taskRepository.findById(10L)).thenReturn(Optional.of(rejected));
+        when(taskRepository.findById(11L)).thenReturn(Optional.of(pending));
+
+        taskService.deleteOwnTask(1L, 10L);
+        verify(taskRepository).delete(rejected);
+
+        assertThatThrownBy(() -> taskService.deleteOwnTask(1L, 11L))
+                .isInstanceOf(BusinessException.class).extracting("code").isEqualTo(400);
+    }
+
+    @Test
     void rejectByAdminRefusesAlreadyApprovedTask() {
-        // 已通过的需求不能被后到的驳回请求覆盖成 cancelled（丢失更新）。
+        // 已通过的需求不能被后到的驳回请求覆盖成 rejected（丢失更新）。
         Task task = task(10L, user(1L, Role.user), TaskStatus.published, category(3, true));
         when(taskRepository.findLockedById(10L)).thenReturn(Optional.of(task));
 

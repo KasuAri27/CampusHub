@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -30,6 +31,15 @@ public class TaskController {
     public ApiResponse<TaskDTO> createTask(@Valid @RequestBody TaskCreateRequest request) {
         Long userId = UserContext.getCurrentUserId();
         return ApiResponse.success(taskService.createTask(request, userId));
+    }
+
+    /**
+     * 发布者修改待审核或被驳回的需求并重新提交审核（API 契约 3.6）。
+     * 请求体同发布；需求类型与分类不能改。身份取自登录态，须为发布者本人。
+     */
+    @PutMapping("/{id}")
+    public ApiResponse<TaskDTO> updateTask(@PathVariable Long id, @Valid @RequestBody TaskCreateRequest request) {
+        return ApiResponse.success(taskService.updateOwnTask(UserContext.getCurrentUserId(), id, request));
     }
 
     /** 用户撤回/删除自己发布的需求；已有订单历史时转为已取消以保留审计，无订单时物理删除。 */
