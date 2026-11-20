@@ -1,6 +1,6 @@
 <template>
   <div class="msg-input-bar">
-    <input type="file" ref="fileInput" accept="image/*" style="display: none" @change="uploadImage" />
+    <input type="file" ref="fileInput" accept="image/jpeg,image/png,image/webp" style="display: none" @change="uploadImage" />
 
     <button class="icon-btn" @click="triggerUpload" title="发送图片">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px">
@@ -48,7 +48,11 @@ async function uploadImage(e) {
   const file = e.target.files[0]
   e.target.value = '' // 清空选择，允许重复上传同一张图片
   if (!file) return
-  if (!file.type.startsWith('image/')) { ElMessage.warning('只能发送图片文件'); return }
+  // 与后端上传白名单一致（API 契约 §11）：仅 jpg/jpeg/png/webp，扩展名与类型均需匹配
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || !/\.(jpe?g|png|webp)$/i.test(file.name)) {
+    ElMessage.warning('只能发送 jpg、png 或 webp 图片')
+    return
+  }
   if (file.size > 5 * 1024 * 1024) { ElMessage.warning('图片不能超过 5MB'); return }
 
   const formData = new FormData()
