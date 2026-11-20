@@ -6,6 +6,7 @@ import com.campushub.chat.handler.ChatWebSocketHandler;
 import com.campushub.chat.service.ConversationService;
 import com.campushub.chat.service.MessageService;
 import com.campushub.common.ApiResponse;
+import com.campushub.common.BusinessException;
 import com.campushub.common.PageResult;
 import com.campushub.util.UserContext;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +18,10 @@ import java.util.Map;
 @RestController
 @RequestMapping("/v1/conversations")
 @RequiredArgsConstructor
-/** 聊天与会话接口控制器，提供会话列表检索、历史消息分页、已读标记、会话保留与解散及 HTTP 消息发送通道。 */
+/**
+ * 聊天与会话接口控制器，提供会话列表检索、历史消息分页、已读标记、会话保留与解散及 HTTP 消息发送通道。
+ * 失败一律抛 {@link BusinessException}，由全局异常处理器转换为对应 HTTP 状态码，控制器不自行拼装错误响应（模块契约 §3.5）。
+ */
 public class ConversationController {
 
     private final ConversationService convService;
@@ -57,7 +61,7 @@ public class ConversationController {
         var conv = convService.getById(id);
         // == 修复：采用全新的复合权限判定规则，防止空指针，完美支持私聊双方及群主/需求方默认兜底 ==
         if (!convService.hasOperatePermission(conv, userId)) {
-            return ApiResponse.error(403, "仅限会话相关负责人操作");
+            throw new BusinessException(403, "仅限会话相关负责人操作");
         }
         convService.keepGroup(id);
         return ApiResponse.success("已确认保留会话", null);
@@ -68,7 +72,7 @@ public class ConversationController {
         Long userId = UserContext.getCurrentUserId();
         String content = body.get("content");
         if (content == null || content.isBlank()) {
-            return ApiResponse.error(400, "消息内容不能为空");
+            throw new BusinessException(400, "消息内容不能为空");
         }
         String msgType = body.getOrDefault("msgType", "TEXT");
         MessageDTO dto = msgService.saveAndGet(id, userId, content, msgType);
@@ -82,7 +86,7 @@ public class ConversationController {
         var conv = convService.getById(id);
         // == 修复：同上 ==
         if (!convService.hasOperatePermission(conv, userId)) {
-            return ApiResponse.error(403, "您没有权限解散或删除此会话");
+            throw new BusinessException(403, "您没有权限解散或删除此会话");
         }
         convService.dismissGroup(id);
         return ApiResponse.success("会话已顺利解散/删除", null);

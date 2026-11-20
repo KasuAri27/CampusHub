@@ -61,7 +61,7 @@
 | P1 | K12 | 代码按 API 契约修正：发布时校验校区必填；广场未传 status 默认 `published`；keyword 同时匹配描述 | task | — |
 | P1 | K12 | `GET /v1/reviews/order/**` 按契约 6.2 免登录（SecurityConfig 白名单） | user | — |
 | P1 | Bug | `OrderService.toDTO` 对懒加载代理用 `instanceof` 判断类型，`taskType` 恒为 `SERVICE`；改为先还原实体或读辨别列 | task | — |
-| P1 | K11 | 控制器不再自拼 `ApiResponse.error`，改抛 `BusinessException` | chat（ConversationController）+ user（FileController） | — |
+| P1 | K11 | 控制器不再自拼 `ApiResponse.error`，改抛 `BusinessException` | chat（ConversationController，**已修复 0066a26**）+ user（FileController） | — |
 | P1 | K1 遗留 | 分类增删改仍由 AdminService 直写 `categoryRepository`，决定是否改走交易核心的分类服务；删除被引用分类时给出明确原因 | admin + task | 方案已定：交易核心新增 `CategoryService`，admin 改调用（模块契约 §9） |
 | P2 | K4 | `OrderLifecycleService` 全限定名直引支付、投诉仓库，交易核心内部治理 | task | — |
 | P2 | K5 | 前端规则副本同步：后端改规则必须通知 Frontend 并同步 `orderPolicy.js`、`orderFlow.js` 及单测；长期可提供规则查询接口 | task + Frontend | 规则查询接口须走 §8 |
