@@ -172,6 +172,37 @@ public class UserService implements UserDetailsService {
         return target.getStatus();
     }
 
+    /**
+     * 管理员在业务处置中决定封禁某账号（如逾期处置勾选“同时禁用付款人账号”），供交易核心转调（K9）。
+     * 与 {@link #toggleStatus} 的区别：本方法只会封禁、不会解封，重复调用幂等，
+     * 因此调用方即使重试或并发处置同一订单，已封禁的账号也不会被误解封。
+     * <p>前置条件与校验（均由账号域自行完成，不信任调用方）：
+     * {@code adminId} 必须是管理员角色，否则 403；目标是管理员账号则 400，管理员之间不能互相封禁。
+     * <p>并发与锁：目标用户取悲观写锁（模块契约 §7 锁顺序的最后一层），调用方已持有的需求、订单锁不受影响；
+     * 管理员身份只读校验、不加锁。本方法加入调用方事务，不改信用分、不发通知（通知由调用方按业务发出）。
+     *
+     * @return {@code true} 本次完成了封禁；{@code false} 目标本来就是封禁状态，未重复写入
+     */
+    @Transactional
+    public boolean ban(Long userId, Long adminId) {
+        boolean operatorIsAdmin = adminId != null && userRepository.findById(adminId)
+                .map(operator -> operator.getRole() == User.Role.admin)
+                .orElse(false);
+        if (!operatorIsAdmin) {
+            throw new BusinessException(403, "仅管理员可以封禁账号");
+        }
+        User target = userRepository.findLockedById(userId)
+                .orElseThrow(() -> new BusinessException(404, "目标用户不存在"));
+        if (target.getRole() == User.Role.admin) {
+            throw new BusinessException(400, "不能封禁管理员账号");
+        }
+        if (target.getStatus() != null && target.getStatus() == 0) {
+            return false;
+        }
+        target.setStatus(0);
+        return true;
+    }
+
     @Override
     public UserDetails loadUserByUsername(String studentId) throws UsernameNotFoundException {
         User user = userRepository.findByStudentId(studentId)
