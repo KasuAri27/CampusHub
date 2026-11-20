@@ -45,6 +45,7 @@ class CommerceFlowIntegrationTest {
     @Autowired OrderRepository orders;
     @Autowired OrderService orderService;
     @Autowired com.campushub.task.TaskReadService taskRead;
+    @Autowired com.campushub.category.CategoryService categoryService;
     @Autowired OrderLifecycleService lifecycle;
     @Autowired PaymentAttemptRepository attempts;
     @Autowired SettlementRecordRepository settlements;
@@ -386,6 +387,20 @@ class CommerceFlowIntegrationTest {
         mvc.perform(put("/v1/admin/tasks/{id}/reject", second).header("Authorization", token(admin))).andExpect(status().isOk());
         mvc.perform(delete("/v1/tasks/{id}", second).header("Authorization", token(requester))).andExpect(status().isOk());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM tasks WHERE id = ?", Integer.class, second)).isZero();
+    }
+
+    /** 真实库验证：被需求引用的分类删除返回 409 且数据不变，未被引用的分类可删除。 */
+    @Test void categoryServiceRefusesToDeleteCategoryReferencedByTasks() throws Exception {
+        long task = publish(validTask());
+        Category unused = categories.save(Category.builder().name("闲置分类").hasReview(false).sortOrder(9).build());
+
+        assertThatThrownBy(() -> categoryService.delete(category.getId()))
+                .isInstanceOf(com.campushub.common.BusinessException.class).hasMessage("该分类下仍有需求，不能删除");
+        assertThat(categories.existsById(category.getId())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM tasks WHERE id = ?", Integer.class, task)).isEqualTo(1);
+
+        categoryService.delete(unused.getId());
+        assertThat(categories.existsById(unused.getId())).isFalse();
     }
 
     @Test void unpaidDebtDeductsExactlyOnceThenAdministratorCanApplyAuditedPenalty() throws Exception {

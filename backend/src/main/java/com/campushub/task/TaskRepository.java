@@ -30,6 +30,8 @@ public interface TaskRepository extends JpaRepository<Task, Long>,
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from Task t where t.id = :id")
     Optional<Task> findLockedById(@Param("id") Long id);
+    /** 该分类下是否仍有需求（含任何状态）；删除分类前的引用检查。 */
+    boolean existsByCategory_Id(Integer categoryId);
     @Query("select count(o) from TaskOrder o where o.task.id = :taskId")
     long countOrders(@Param("taskId") Long taskId);
 
