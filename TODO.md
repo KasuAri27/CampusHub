@@ -48,15 +48,15 @@
 
 ### 4.1 当前阶段解耦任务（按分支）
 
-凡标注“须走 §8”的，需先由 main 拟契约修订草案、经用户批准后再动代码；改动接口或 DTO 的后端分支完成后通知 Frontend 对话同步前端。
+凡标注“须走 §8”的，需先由 main 拟契约修订草案、经用户批准后再动代码（K9、K3、K10、C7 的修订已于 2026-11-20 批准写入模块契约，开工时间由用户安排）；改动接口或 DTO 的后端分支完成后通知 Frontend 对话同步前端。
 
 | 优先级 | 编号 | 任务 | 负责分支 | 前置 |
 | --- | --- | --- | --- | --- |
 | P0 | 安全 | 上传接口不校验类型与扩展名，原扩展名保存后经 `/uploads/**` 同源公开访问，可上传 HTML/SVG 造成存储型 XSS（可读取前端 localStorage 中的 JWT）；无扩展名文件名会抛 500。改为图片类型与扩展名白名单、服务端重命名、响应加 `X-Content-Type-Options: nosniff` | user | 修复后在 API 契约 §11 写明允许的类型 |
-| P0 | K9 | 逾期处罚封禁改走账号集群的幂等封禁入口，交易核心不再直接 `setStatus` | user + task | 须走 §8（修订 §3.4） |
+| P0 | K9 | 管理员逾期处置选择封禁时，改为转调 `UserService.ban(userId, adminId)`（模块契约 §3.4），交易核心不再直接 `setStatus`；自动逾期仍只扣 10 分并升级给管理员 | user + task | 契约已批准，user 先实现 `ban`，task 再改调用 |
 | P0 | 隐私 | 公开的需求详情接口向所有人返回 `pickupCode`，改为仅发布者与接单人可见 | task | 修复时在 API 契约 3.3 补可见性说明 |
-| P1 | K10 | chat 不再读取订单状态，改用交易核心提供的只读查询或结清通知 | chat + task | 须走 §8（新增跨集群接口） |
-| P1 | K3 | `ChatIntegrationService` 参数由 Task 实体改为标量（目标签名见契约 §3.3） | chat + task | 须走 §8 |
+| P1 | K10 | chat 不再读取订单状态，改读 `TaskChatView.hasOpenObligations`（模块契约 §3.6） | chat + task | 契约已批准，迁移步骤见模块契约 §9 |
+| P1 | K3 | `ChatIntegrationService` 参数由 Task 实体改为标量（模块契约 §3.3），chat 读需求改经 `TaskReadService`（§3.6） | chat + task | 契约已批准，与 K10 同一迁移顺序 |
 | P1 | K12 | 代码按 API 契约修正：发布时校验校区必填；广场未传 status 默认 `published`；keyword 同时匹配描述 | task | — |
 | P1 | K12 | `GET /v1/reviews/order/**` 按契约 6.2 免登录（SecurityConfig 白名单） | user | — |
 | P1 | Bug | `OrderService.toDTO` 对懒加载代理用 `instanceof` 判断类型，`taskType` 恒为 `SERVICE`；改为先还原实体或读辨别列 | task | — |
@@ -84,7 +84,7 @@
 | C4 | 群聊清理定时任务在单个长事务里遍历全部会话（每条再查需求与订单），持有会话行锁期间，接单/取消事务会带着需求、订单锁排队等待；改为分页、逐会话短事务 | `GroupCleanupScheduler.cleanupExpiredGroups` | chat |
 | C5 | 组队需求未满员时一直是 `published`，截止后被自动取消，但已加入成员的订单仍为进行中；自动取消需排除或级联处理有进行中订单的组队 | `TaskRepository.findExpiredTasks`、`TaskAutoCancelScheduler` | task |
 | C6 | 行锁等待超时或死锁回滚（`PessimisticLockingFailureException`、`CannotAcquireLockException`）落入兜底处理返回 500；应映射为 409/503 并提示重试 | `common/GlobalExceptionHandler` | main |
-| C7 | 全表加载后内存过滤：统计 3 处、“通知所有管理员”3 处、全体广播 1 处；改为计数查询与按角色查询（`UserRepository` 新增方法属冻结签名，须走 §8） | `AdminService.java:85,88,100,354`、`ComplaintService:65`、`OrderLifecycleService:168`、`TaskService:442` | admin + user + task |
+| C7 | 全表加载后内存过滤：统计 3 处、“通知所有管理员”3 处、全体广播 1 处；改为计数查询与按角色查询（`UserRepository.findIdsByRole`、`countByStatus` 已批准写入模块契约 §3.4，user 先实现） | `AdminService.java:85,88,100,354`、`ComplaintService:65`、`OrderLifecycleService:168`、`TaskService:442` | admin + user + task |
 | C8 | 定时任务没有分布式锁：单实例下靠行锁、条件更新和 eventKey 幂等保证正确，多实例部署时群聊清理会重复执行；随 §2.1 Redisson 落地处理 | 6 个 `@Scheduled` 任务 | redis |
 
 ### 4.3 工程协调
