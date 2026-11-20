@@ -34,9 +34,9 @@ public class OrderLifecycleService {
         if (order.getStatus() != Order.OrderStatus.in_progress) throw new BusinessException(409, "订单状态无法提交完成");
         LocalDateTime now = LocalDateTime.now(clock);
         order.setCompletionSubmittedAt(now);
-        order.setAcceptanceDueAt(now.plusHours(24));
+        order.setAcceptanceDueAt(now.plusHours(OrderRules.ACCEPTANCE_HOURS));
         order.setStatus(Order.OrderStatus.awaiting_acceptance);
-        notifications.createNotification(order.getPayerId(), "请验收服务", "服务方已提交完成，24小时无异议将自动验收。", "ACCEPTANCE");
+        notifications.createNotification(order.getPayerId(), "请验收服务", "服务方已提交完成，" + OrderRules.ACCEPTANCE_HOURS + "小时无异议将自动验收。", "ACCEPTANCE");
     }
 
     @Transactional
@@ -59,7 +59,7 @@ public class OrderLifecycleService {
         if (order.getAmountDue().signum() == 0) {
             order.setReviewEligibleAt(acceptedAt);
         } else {
-            order.setPaymentDueAt(acceptedAt.plusHours(1));
+            order.setPaymentDueAt(acceptedAt.plusHours(OrderRules.PAYMENT_WINDOW_HOURS));
         }
         notifications.createNotification(order.getPayerId(), "验收已完成", "有偿订单请在验收后1小时内付款；无偿订单可直接评价。", "ACCEPTED");
         notifications.createNotification(order.getPayeeId(), "服务已验收", "验收已完成，付款及结算状态请在订单中查看。", "ACCEPTED");
@@ -90,10 +90,10 @@ public class OrderLifecycleService {
         }
         if (order.getPaymentStatus() != Order.PaymentStatus.unpaid || order.getPaymentDueAt() == null) return;
         if (!order.getPaymentDueAt().isAfter(now) && order.getOverdueAt() == null) {
-            credit.adjust(order.getPayerId(), -10, "overdue:" + orderId, "验收后1小时未付款");
+            credit.adjust(order.getPayerId(), -OrderRules.OVERDUE_PENALTY_POINTS, "overdue:" + orderId, "验收后" + OrderRules.PAYMENT_WINDOW_HOURS + "小时未付款");
             order.setOverdueAt(order.getPaymentDueAt());
-            order.setEscalationDueAt(order.getPaymentDueAt().plusHours(24));
-            notifications.createNotification(order.getPayerId(), "付款逾期扣分", "本订单已扣10分；24小时后仍未付款将由管理员介入。", "OVERDUE");
+            order.setEscalationDueAt(order.getPaymentDueAt().plusHours(OrderRules.ESCALATION_GRACE_HOURS));
+            notifications.createNotification(order.getPayerId(), "付款逾期扣分", "本订单已扣" + OrderRules.OVERDUE_PENALTY_POINTS + "分；" + OrderRules.ESCALATION_GRACE_HOURS + "小时后仍未付款将由管理员介入。", "OVERDUE");
         }
         if (order.getEscalationDueAt() != null && !order.getEscalationDueAt().isAfter(now) && order.getEscalatedAt() == null) {
             order.setEscalatedAt(now);
@@ -129,7 +129,7 @@ public class OrderLifecycleService {
         order.setSettlementStatus(amount.signum() == 0 ? Order.SettlementStatus.not_required : Order.SettlementStatus.pending);
         order.setPaymentDueAt(amount.signum() == 0 ? null : LocalDateTime.now(clock).plusHours(paymentHours));
         order.setReviewEligibleAt(amount.signum() == 0 ? LocalDateTime.now(clock) : null);
-        order.setEscalationDueAt(order.getOverdueAt() == null || amount.signum() == 0 ? null : order.getPaymentDueAt().plusHours(24));
+        order.setEscalationDueAt(order.getOverdueAt() == null || amount.signum() == 0 ? null : order.getPaymentDueAt().plusHours(OrderRules.ESCALATION_GRACE_HOURS));
         order.setEscalatedAt(null);
         order.getTask().setStatus(Task.TaskStatus.completed);
         resolveComplaints(orderId, adminId, reason);

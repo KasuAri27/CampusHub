@@ -9,6 +9,7 @@ import com.campushub.common.PageResult.Pagination;
 import com.campushub.complaint.ComplaintRepository;
 import com.campushub.order.Order;
 import com.campushub.order.OrderRepository;
+import com.campushub.order.OrderRules;
 import com.campushub.payment.PaymentAttemptRepository;
 import com.campushub.review.ReviewRepository;
 import com.campushub.task.Task.TaskStatus;
@@ -65,7 +66,7 @@ public class TaskService {
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
         if (requester.getStatus() != 1) throw new BusinessException(403, "账号已被禁用");
 
-        if (requester.getCreditScore() < 70) {
+        if (requester.getCreditScore() < OrderRules.MIN_CREDIT_TO_TRADE) {
             throw new BusinessException(403, "您的信用分低于70分，暂无发布需求权限！");
         }
 
@@ -197,7 +198,7 @@ public class TaskService {
         User requester = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(404, "用户不存在"));
         if (requester.getStatus() != 1) throw new BusinessException(403, "账号已被禁用");
-        if (requester.getCreditScore() < 70) {
+        if (requester.getCreditScore() < OrderRules.MIN_CREDIT_TO_TRADE) {
             throw new BusinessException(403, "您的信用分低于70分，暂无发布需求权限！");
         }
         if (task.getStatus() != TaskStatus.pending_review && task.getStatus() != TaskStatus.rejected) {

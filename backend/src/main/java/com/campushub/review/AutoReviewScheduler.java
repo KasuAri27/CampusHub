@@ -1,6 +1,7 @@
 package com.campushub.review;
 
 import com.campushub.order.Order;
+import com.campushub.order.OrderRules;
 import com.campushub.order.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +27,7 @@ public class AutoReviewScheduler {
     @Scheduled(fixedRate = 60000)
     // 1. 移除这里的 @Transactional，让循环内的每次调用独立控制事务
     public void processAutoReviews() {
-        LocalDateTime thresholdTime = LocalDateTime.now(clock).minusDays(7);
+        LocalDateTime thresholdTime = LocalDateTime.now(clock).minusDays(OrderRules.REVIEW_WINDOW_DAYS);
 
         // 获取所有满足条件的订单
         List<Order> pendingOrders = orderRepository.findOrdersPendingAutoReview(
