@@ -14,7 +14,7 @@
 name: CampusHub CI
 on:
   push:
-    branches: [main, user, admin, task, chat, redis]
+    branches: [main, user, admin, task, chat, redis, Frontend]
   pull_request:
   workflow_dispatch:
 
