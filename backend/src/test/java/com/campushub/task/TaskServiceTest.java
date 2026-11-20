@@ -205,6 +205,37 @@ class TaskServiceTest {
                 .isInstanceOf(BusinessException.class).extracting("code").isEqualTo(404);
     }
 
+    @Test
+    void pickupCodeIsVisibleOnlyToRequesterAndOrderParticipants() {
+        User requester = user(1L, Role.user);
+        ExpressTask task = (ExpressTask) task(10L, requester, TaskStatus.in_progress, category(3, true));
+        task.setPickupCode("A-1234");
+        when(taskRepository.findByIdWithDetails(10L)).thenReturn(Optional.of(task));
+        when(orderRepository.existsByTask_IdAndProvider_IdAndStatusNot(10L, 2L, com.campushub.order.Order.OrderStatus.cancelled)).thenReturn(true);
+        when(orderRepository.existsByTask_IdAndProvider_IdAndStatusNot(10L, 3L, com.campushub.order.Order.OrderStatus.cancelled)).thenReturn(false);
+
+        assertThat(taskService.getTaskDetail(10L, 1L).getPickupCode()).isEqualTo("A-1234");   // 发布者
+        assertThat(taskService.getTaskDetail(10L, 2L).getPickupCode()).isEqualTo("A-1234");   // 订单参与者
+        assertThat(taskService.getTaskDetail(10L, 3L).getPickupCode()).isNull();              // 无关登录用户
+        assertThat(taskService.getTaskDetail(10L, null).getPickupCode()).isNull();            // 未登录
+        // 其余字段不受裁剪影响。
+        assertThat(taskService.getTaskDetail(10L, null).getPickupLocation()).isEqualTo("校门口驿站");
+    }
+
+    @Test
+    void listHidesPickupCodeFromEveryoneButRequesterWithoutExtraQueries() {
+        User requester = user(1L, Role.user);
+        ExpressTask task = (ExpressTask) task(10L, requester, TaskStatus.published, category(3, true));
+        task.setPickupCode("A-1234");
+        when(taskRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenAnswer(inv -> new PageImpl<>(List.of(task), inv.getArgument(1), 1));
+        // 列表页不查订单参与者，避免 N+1；匿名访问时 UserContext 为空。
+        PageResult<TaskDTO> anonymous = taskService.listTasks(null, null, null, "latest", null, 1, 10);
+
+        assertThat(anonymous.getItems().get(0).getPickupCode()).isNull();
+        verify(orderRepository, never()).existsByTask_IdAndProvider_IdAndStatusNot(any(), any(), any());
+    }
+
     /** 无金额快照的历史订单（amountDue 为空），管理员清理需求时允许级联删除。 */
     private static com.campushub.order.Order legacyOrder(Long id) {
         com.campushub.order.Order order = new com.campushub.order.Order();

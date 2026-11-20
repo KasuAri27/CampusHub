@@ -62,6 +62,6 @@ public class TaskController {
 
     @GetMapping("/{id}")
     public ApiResponse<TaskDTO> getTaskDetail(@PathVariable Long id) {
-        return ApiResponse.success(taskService.getTaskDetail(id));
+        return ApiResponse.success(taskService.getTaskDetail(id, UserContext.getCurrentUserId()));
     }
 }

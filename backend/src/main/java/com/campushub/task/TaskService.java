@@ -149,7 +149,7 @@ public class TaskService {
 
         notifyAdminsForReview(task);
 
-        return toDTO(task);
+        return toDTO(task, userId, false);
     }
 
     @Transactional(readOnly = true)
@@ -220,7 +220,7 @@ public class TaskService {
         Page<Task> taskPage = taskRepository.findAll(spec, pageable);
 
         List<TaskDTO> items = taskPage.getContent().stream()
-                .map(this::toDTO)
+                .map(t -> toDTO(t, currentUserId, false))
                 .toList();
 
         return new PageResult<>(items, new Pagination(page, size, taskPage.getTotalElements(), taskPage.getTotalPages()));
@@ -235,17 +235,18 @@ public class TaskService {
         Page<Task> taskPage = taskRepository.findAll(spec, pageable);
 
         List<TaskDTO> items = taskPage.getContent().stream()
-                .map(this::toDTO)
+                .map(t -> toDTO(t, userId, false))
                 .toList();
 
         return new PageResult<>(items, new Pagination(page, size, taskPage.getTotalElements(), taskPage.getTotalPages()));
     }
 
     @Transactional(readOnly = true)
-    public TaskDTO getTaskDetail(Long id) {
+    public TaskDTO getTaskDetail(Long id, Long viewerId) {
         Task task = taskRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new BusinessException(404, "需求不存在"));
-        return toDTO(task);
+        // 详情页是取件码的唯一展示入口：除发布者外，还要放行该需求的订单参与者。
+        return toDTO(task, viewerId, true);
     }
 
     /**
@@ -363,7 +364,22 @@ public class TaskService {
         return Sort.by(Sort.Direction.DESC, "publishedAt");
     }
 
-    private TaskDTO toDTO(Task task) {
+    /**
+     * 取件码是取到快递的凭据，只能给发布者和该需求的订单参与者看；公开广场、未登录请求一律不返回。
+     * 身份只来自服务端登录态（viewerId 由 UserContext 解析，未登录为 null），不信任任何客户端传参。
+     *
+     * @param includeParticipants 为 true 时额外查询订单参与者（仅详情页，单条需求一次存在性查询）；
+     *                            列表页为 false，避免每行一次查询，列表里只有发布者本人能看到自己需求的取件码。
+     */
+    private boolean canSeePickupCode(Task task, Long viewerId, boolean includeParticipants) {
+        if (viewerId == null) return false;
+        if (task.getRequester() != null && viewerId.equals(task.getRequester().getId())) return true;
+        // 已取消的订单不再算参与者：接单人退出后不应继续持有取件码。
+        return includeParticipants && orderRepository.existsByTask_IdAndProvider_IdAndStatusNot(
+                task.getId(), viewerId, Order.OrderStatus.cancelled);
+    }
+
+    private TaskDTO toDTO(Task task, Long viewerId, boolean includeParticipants) {
         User requester = task.getRequester();
         Category category = task.getCategory();
 
@@ -393,7 +409,7 @@ public class TaskService {
             taskType = "RUNNING";
             builder.pickupLocation(et.getPickupLocation())
                    .deliveryLocation(et.getDeliveryLocation())
-                   .pickupCode(et.getPickupCode())
+                   .pickupCode(canSeePickupCode(task, viewerId, includeParticipants) ? et.getPickupCode() : null)
                    .expressReward(et.getExpressReward());
         } else if (task instanceof TutoringTask tt) {
             taskType = "TUTORING";

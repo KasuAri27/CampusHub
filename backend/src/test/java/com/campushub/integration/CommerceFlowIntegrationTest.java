@@ -217,6 +217,24 @@ class CommerceFlowIntegrationTest {
         mvc.perform(delete("/v1/admin/tasks/{id}", rejected).header("Authorization", token(admin))).andExpect(status().isNotFound());
     }
 
+    /** 取件码走免登录详情接口时，按真实 JWT 身份裁剪：匿名与无关用户为空，发布者与接单人可见。 */
+    @Test void pickupCodeIsOnlyReturnedToRequesterAndAcceptedProviderOverHttp() throws Exception {
+        ObjectNode body = validTask();
+        body.put("pickupCode", "A-1234");
+        long task = publish(body);
+        User stranger = seed("str", User.Role.user);
+
+        mvc.perform(get("/v1/tasks/{id}", task)).andExpect(status().isOk()).andExpect(jsonPath("$.data.pickupCode").doesNotExist());
+        mvc.perform(get("/v1/tasks/{id}", task).header("Authorization", token(stranger))).andExpect(jsonPath("$.data.pickupCode").doesNotExist());
+        mvc.perform(get("/v1/tasks/{id}", task).header("Authorization", token(provider))).andExpect(jsonPath("$.data.pickupCode").doesNotExist());
+        mvc.perform(get("/v1/tasks/{id}", task).header("Authorization", token(requester))).andExpect(jsonPath("$.data.pickupCode").value("A-1234"));
+
+        accept(task, provider);
+        mvc.perform(get("/v1/tasks/{id}", task).header("Authorization", token(provider))).andExpect(jsonPath("$.data.pickupCode").value("A-1234"));
+        mvc.perform(get("/v1/tasks/{id}", task).header("Authorization", token(stranger))).andExpect(jsonPath("$.data.pickupCode").doesNotExist());
+        mvc.perform(get("/v1/tasks/{id}", task)).andExpect(jsonPath("$.data.pickupCode").doesNotExist());
+    }
+
     @Test void unpaidDebtDeductsExactlyOnceThenAdministratorCanApplyAuditedPenalty() throws Exception {
         long order = acceptedService(); clock.set(start.plusHours(1));
         lifecycle.processDeadline(order); lifecycle.processDeadline(order);
