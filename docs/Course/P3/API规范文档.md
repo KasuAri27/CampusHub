@@ -121,6 +121,8 @@
 
 ## 3. 需求任务模块 (`/v1/tasks`)
 
+- **需求状态**：`pending_review`（待审核）→ 管理员通过 → `published`（待接单）→ 接单 → `in_progress` → `completed`；管理员驳回 → `rejected`（被驳回）→ 发布者修改后重新提交（3.6）→ `pending_review`；可取消为 `cancelled`。`rejected` 于 2026-11-20 批准新增（TODO §1.1），此前驳回直接置为 `cancelled`，历史数据不转换。
+
 ### 3.1 发布需求
 - **URL**：`/v1/tasks`
 - **Method**：`POST`
@@ -155,7 +157,7 @@
   | 参数名 | 类型 | 必填 | 说明 |
   | --- | --- | --- | --- |
   | categoryId | Integer | 否 | 分类过滤 |
-  | status | String | 否 | 任务状态（默认查询 `published`） |
+  | status | String | 否 | 任务状态（默认查询 `published`）；`pending_review`、`rejected` 只有发布者本人与管理员可见 |
   | keyword | String | 否 | 标题与描述模糊搜索 |
   | campus | String | 否 | 校区过滤 |
   | sort | String | 否 | 排序规则：`latest`（最新发布）、`reward`（报酬最高，2026-11 由 `reward_desc` 改为与实现一致）、`deadline_asc`（即将截止） |
@@ -168,17 +170,30 @@
 - **Method**：`GET`
 - **认证**：否
 - **成功响应**：`TaskDTO`，含基础字段、`publisher`（`userId`、`nickname`、`avatar`、`creditScore`）、3.1 所列类型专属字段，组队另含 `chatGroupId`（群聊会话 ID）。
+- **可见性**（2026-11-20 批准）：
+  - `pending_review`、`rejected` 状态的需求只对发布者本人与管理员返回，其他人返回 404。
+  - `pickupCode` 只返回给发布者与该需求的订单参与者，其他人（含未登录）为空。
+  - `rejectReason`（最近一次驳回理由）只返回给发布者与管理员。
 
 ### 3.4 我发布的需求
 - **URL**：`/v1/tasks/mine/published`
 - **Method**：`GET`
 - **认证**：是
 - **Query 参数**：`page`, `page_size`
+- **说明**：包含本人全部状态的需求，被驳回的需求带 `rejectReason`。
 
 ### 3.5 删除/撤回需求
 - **URL**：`/v1/tasks/{id}`
 - **Method**：`DELETE`
-- **认证**：是（仅限发布者本人；若已产生订单记录则软取消以保留审计，无历史订单则物理移除）
+- **认证**：是（仅限发布者本人；若已产生订单记录则软取消以保留审计，无历史订单则物理移除；被驳回的需求没有订单，删除即物理移除）
+
+### 3.6 修改并重新提交（2026-11-20 批准，TODO §1.1）
+- **URL**：`/v1/tasks/{id}`
+- **Method**：`PUT`
+- **认证**：是（仅限发布者本人，信用分需 ≥ 70）
+- **前置状态**：`pending_review` 或 `rejected`，其他状态返回 409。
+- **请求体**：同 3.1；`taskType`、`categoryId` 必须与原需求一致（需求按类型分表存储，不能换类型），否则 400；截止时间须晚于当前时间。
+- **成功响应**：返回更新后的 `TaskDTO`，状态置为 `pending_review`，清空 `rejectReason`，并通知管理员重新审核。
 
 ---
 
@@ -370,7 +385,7 @@
   - 需求分页：`GET /v1/admin/tasks?page=1&page_size=20&status=pending_review&keyword=...`（keyword 匹配标题；`taskType` 只区分 `TEAM`、`FLEA`、`SERVICE`）
   - 删除需求：`DELETE /v1/admin/tasks/{id}`（已有有效付款或争议订单的需求不能删除）
   - 审核通过：`PUT /v1/admin/tasks/{id}/approve`
-  - 审核驳回：`PUT /v1/admin/tasks/{id}/reject`（Body: `{ "reason": "信息不合规" }`）
+  - 审核驳回：`PUT /v1/admin/tasks/{id}/reject`（Body: `{ "reason": "信息不合规" }`）。驳回后状态为 `rejected`（2026-11-20 起，原为 `cancelled`），理由不超过 200 字，保存为 `rejectReason` 并通知发布者；需求列表可按 `status=rejected` 筛选，管理端 DTO 同样带 `rejectReason`。
 - **分类维护**：`GET /v1/admin/categories`, `POST /v1/admin/categories`, `PUT /v1/admin/categories/{id}`, `DELETE /v1/admin/categories/{id}`
 - **系统通知**：
   - 通知记录：`GET /v1/admin/notifications?page=1&page_size=20`（全平台通知，含系统自动发出的）
@@ -390,6 +405,7 @@
 ## 11. 文件上传 (`/v1/files`)（2026-11 补录现行接口）
 
 - **上传**：`POST /v1/files/upload`，`multipart/form-data`，字段 `file`（单个文件不超过 5MB）。
+- **允许类型**（2026-11-20 批准）：仅 jpg、jpeg、png、webp，扩展名与 Content-Type 同时校验，文件名由服务端生成；其他类型或无扩展名返回 400。上传文件的响应带 `X-Content-Type-Options: nosniff`。
 - **成功响应**：`{ "url": "/api/uploads/<随机文件名>" }`。返回相对路径，前端经同源代理访问；部署时须保证 `/api/uploads/**` 映射到后端静态资源。
 - 结算凭证不走本接口，见 5.6（私有存储、仅管理员可下载）。
 
