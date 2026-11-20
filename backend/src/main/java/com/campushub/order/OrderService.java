@@ -193,7 +193,9 @@ public class OrderService {
     }
 
     public OrderDTO toDTO(Order order) {
-        Task task = order.getTask();
+        // Order.task 是懒加载关联：列表类查询拿到的是 Hibernate 代理，代理类不是 TeamingTask/SecondHandTask 的实例，
+        // 直接 instanceof 会让组队与二手订单恒被判为 SERVICE。先还原成真实子类再判断类型。
+        Task task = (Task) org.hibernate.Hibernate.unproxy(order.getTask());
         return OrderDTO.builder()
                 .orderId(order.getId())
                 .orderStatus(order.getStatus().name())

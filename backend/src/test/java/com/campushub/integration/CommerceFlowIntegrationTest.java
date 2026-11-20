@@ -301,6 +301,29 @@ class CommerceFlowIntegrationTest {
         assertThat(mine.path("data").path("items").get(0).path("id").asLong()).isEqualTo(pending);
     }
 
+    /** 订单列表里需求是懒加载代理，类型必须按真实子类判断：组队 TEAM、二手 FLEA、其余 SERVICE。 */
+    @Test void orderListReportsRealTaskTypeNotLazyProxyDefault() throws Exception {
+        ObjectNode team = validTask();
+        team.put("taskType", "TEAM"); team.put("maxMembers", 4);
+        team.remove("expressReward"); team.remove("pickupLocation"); team.remove("deliveryLocation");
+        ObjectNode flea = validTask();
+        flea.put("taskType", "FLEA"); flea.put("tradeMode", "SELL"); flea.put("itemPrice", new BigDecimal("12.00"));
+        flea.remove("expressReward"); flea.remove("pickupLocation"); flea.remove("deliveryLocation");
+        long teamOrder = accept(publish(team), provider);
+        long fleaOrder = accept(publish(flea), provider);
+        long serviceOrder = accept(publish(validTask()), provider);
+
+        JsonNode mine = response(mvc.perform(get("/v1/orders/mine").header("Authorization", token(provider))).andExpect(status().isOk()));
+        Map<Long, String> types = new HashMap<>();
+        mine.path("data").forEach(o -> types.put(o.path("orderId").asLong(), o.path("taskType").asText()));
+        assertThat(types).containsEntry(teamOrder, "TEAM").containsEntry(fleaOrder, "FLEA").containsEntry(serviceOrder, "SERVICE");
+        // 接单历史走另一条加载路径，同样不能退化成 SERVICE。
+        JsonNode accepted = response(mvc.perform(get("/v1/orders/my-accepted").header("Authorization", token(provider))).andExpect(status().isOk()));
+        Map<Long, String> acceptedTypes = new HashMap<>();
+        accepted.path("data").forEach(o -> acceptedTypes.put(o.path("orderId").asLong(), o.path("taskType").asText()));
+        assertThat(acceptedTypes).containsEntry(teamOrder, "TEAM").containsEntry(fleaOrder, "FLEA").containsEntry(serviceOrder, "SERVICE");
+    }
+
     @Test void unpaidDebtDeductsExactlyOnceThenAdministratorCanApplyAuditedPenalty() throws Exception {
         long order = acceptedService(); clock.set(start.plusHours(1));
         lifecycle.processDeadline(order); lifecycle.processDeadline(order);
