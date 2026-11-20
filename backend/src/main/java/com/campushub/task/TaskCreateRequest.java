@@ -31,6 +31,9 @@ public class TaskCreateRequest {
     @DecimalMax(value = "99999999.99", message = "报酬超出合理范围")
     private BigDecimal reward;
 
+    /** 校区必填（API 契约 3.1）；库字段长度 20。取值范围由前端下拉约束，后端不硬编码校区清单。 */
+    @NotBlank(message = "校区不能为空")
+    @Size(max = 20, message = "校区长度不能超过 20 字符")
     private String campus;
 
     private String location;

@@ -188,15 +188,15 @@ public class TaskService {
             if (categoryId != null) {
                 predicates.add(cb.equal(root.get("category").get("id"), categoryId));
             }
-            if (status != null && !status.isBlank()) {
-                try {
-                    TaskStatus ts = TaskStatus.valueOf(status);
-                    predicates.add(cb.equal(root.get("status"), ts));
-                } catch (IllegalArgumentException ignored) {
-                }
-            }
+            // API 契约 3.2：未传 status 默认只看 published（待接单）。无法识别的取值同样回落到 published，
+            // 不能因为解析失败而退化成“不过滤状态”，那会把各种终态与待审需求都放进公共广场。
+            predicates.add(cb.equal(root.get("status"), parseListStatus(status)));
             if (keyword != null && !keyword.isBlank()) {
-                predicates.add(cb.like(root.get("title"), "%" + keyword + "%"));
+                // 标题与描述任一包含关键词即命中（不区分大小写）。
+                String like = "%" + keyword.toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("title")), like),
+                        cb.like(cb.lower(root.get("description")), like)));
             }
             if (campus != null && !campus.isBlank()) {
                 predicates.add(cb.equal(root.get("campus"), campus));
@@ -224,6 +224,16 @@ public class TaskService {
                 .toList();
 
         return new PageResult<>(items, new Pagination(page, size, taskPage.getTotalElements(), taskPage.getTotalPages()));
+    }
+
+    /** 广场状态过滤：空或非法取值回落到 published。 */
+    private static TaskStatus parseListStatus(String status) {
+        if (status == null || status.isBlank()) return TaskStatus.published;
+        try {
+            return TaskStatus.valueOf(status.trim());
+        } catch (IllegalArgumentException ex) {
+            return TaskStatus.published;
+        }
     }
 
     @Transactional(readOnly = true)

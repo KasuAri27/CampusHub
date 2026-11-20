@@ -102,7 +102,7 @@ class CommerceFlowIntegrationTest {
         ObjectNode body = json.createObjectNode();
         body.put("title", "请帮忙代取测试快递"); body.put("description", "从测试驿站取件后送到测试宿舍楼下");
         body.put("categoryId", category.getId()); body.put("taskType", "RUNNING"); body.put("expressReward", new BigDecimal("6.50"));
-        body.put("pickupLocation", "测试驿站"); body.put("deliveryLocation", "测试宿舍"); body.put("deadline", start.plusDays(2).toString());
+        body.put("campus", "鼓楼校区"); body.put("pickupLocation", "测试驿站"); body.put("deliveryLocation", "测试宿舍"); body.put("deadline", start.plusDays(2).toString());
         return body;
     }
     long publish(ObjectNode body) throws Exception {
@@ -262,6 +262,43 @@ class CommerceFlowIntegrationTest {
         jdbc.update("UPDATE orders SET payment_status = 'not_required', settlement_status = 'not_required', disputed = false WHERE id = ?", order);
         assertThat(taskRead.findChatViews(List.of(task)).get(task).hasOpenObligations()).isFalse();
         assertThat(taskRead.findChatView(Long.MAX_VALUE)).isEmpty();
+    }
+
+    /** API 契约 3.1/3.2：校区必填；广场默认只列 published；关键词同时匹配标题与描述。 */
+    @Test void squareListDefaultsToPublishedSearchesDescriptionAndCampusIsRequired() throws Exception {
+        ObjectNode noCampus = validTask();
+        noCampus.remove("campus");
+        mvc.perform(post("/v1/tasks").header("Authorization", token(requester)).contentType(MediaType.APPLICATION_JSON).content(noCampus.toString()))
+                .andExpect(status().isUnprocessableEntity());
+        noCampus.put("campus", "   ");
+        mvc.perform(post("/v1/tasks").header("Authorization", token(requester)).contentType(MediaType.APPLICATION_JSON).content(noCampus.toString()))
+                .andExpect(status().isUnprocessableEntity());
+
+        ObjectNode approvedBody = validTask();
+        approvedBody.put("description", "描述里藏着独特线索甲乙丙，用于搜索");
+        long approved = publish(approvedBody);
+        ObjectNode pendingBody = validTask();
+        pendingBody.put("description", "待审核需求同样含有独特线索甲乙丙");
+        long pending = response(mvc.perform(post("/v1/tasks").header("Authorization", token(requester)).contentType(MediaType.APPLICATION_JSON)
+                .content(pendingBody.toString())).andExpect(status().isCreated())).path("data").path("id").asLong();
+
+        // 未传 status：只有 published，待审核需求不出现在公共广场。
+        JsonNode all = response(mvc.perform(get("/v1/tasks")).andExpect(status().isOk()));
+        assertThat(all.path("data").path("items")).hasSize(1);
+        assertThat(all.path("data").path("items").get(0).path("id").asLong()).isEqualTo(approved);
+        // 关键词只出现在描述里也能命中；待审核的同关键词需求依旧不可见。
+        JsonNode byDescription = response(mvc.perform(get("/v1/tasks").param("keyword", "独特线索")).andExpect(status().isOk()));
+        assertThat(byDescription.path("data").path("items")).hasSize(1);
+        assertThat(byDescription.path("data").path("items").get(0).path("id").asLong()).isEqualTo(approved);
+        // 标题命中同样有效；无法识别的 status 回落到 published，而不是不过滤。
+        assertThat(response(mvc.perform(get("/v1/tasks").param("keyword", "代取测试"))).path("data").path("items")).hasSize(1);
+        assertThat(response(mvc.perform(get("/v1/tasks").param("status", "bogus"))).path("data").path("items")).hasSize(1);
+        // 匿名显式请求 pending_review：仍看不到别人的待审核需求。
+        assertThat(response(mvc.perform(get("/v1/tasks").param("status", "pending_review"))).path("data").path("items")).isEmpty();
+        // 发布者本人显式请求可看到自己的待审核需求。
+        JsonNode mine = response(mvc.perform(get("/v1/tasks").param("status", "pending_review").header("Authorization", token(requester))));
+        assertThat(mine.path("data").path("items")).hasSize(1);
+        assertThat(mine.path("data").path("items").get(0).path("id").asLong()).isEqualTo(pending);
     }
 
     @Test void unpaidDebtDeductsExactlyOnceThenAdministratorCanApplyAuditedPenalty() throws Exception {
