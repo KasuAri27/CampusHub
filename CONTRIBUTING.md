@@ -6,10 +6,11 @@
 |---|---|
 | `main` | 主干：整体文档编写、横切共享代码（common、config 基础、util 除外见下）、数据库全局件（建库/迁移登记/结构指纹/种子/断言清单）；所有合并的目标 |
 | `redis` | 缓存扩展：Redis 缓存与分布式锁落地（见 TODO §2.1） |
-| `user` | 用户页面、登录注册、用户权限：后端 user/verification/file/security/util 与 SecurityConfig，前端 user/、views/、userStore |
-| `admin` | 管理员相关功能：admin 前后端 |
-| `task` | 核心业务：发布需求、接单、交易、组队等（task/order/payment/review/complaint/category 前后端，高度耦合不再细分） |
-| `chat` | 通知与 WebSocket 对话系统：chat/notification 前后端 |
+| `user` | 登录注册与用户权限（后端）：user/verification/file/security/util 与 SecurityConfig |
+| `admin` | 管理员相关功能（后端）：admin |
+| `task` | 核心业务（后端）：发布需求、接单、交易、组队等（task/order/payment/review/complaint/category，高度耦合不再细分） |
+| `chat` | 通知与 WebSocket 对话系统（后端）：chat/notification |
+| `Frontend` | 全部前端：`frontend/` 下所有页面、状态、请求封装与构建配置；后端分支改动接口或 DTO 时由它同步调整（2026-11-19 设立） |
 
 - **未经许可不许合并**：任何分支合并（含合入 main）必须经用户明确批准；不要直接把未经检查的改动合入主分支。
 - **进远程只有一条路**：各工作树分支先合入本地 `main`，再由 `main` 建临时分支 `tmp/<主题>` 推到远程发起合并请求，在远程合并后删除临时分支。功能分支不直接向远程发起合并请求。具体步骤见 [AGENTS §6](AGENTS.md)。
@@ -44,7 +45,7 @@ PR描述说明：问题和结果、涉及的信息流和状态迁移、验证命
 
 ## GitHub持续集成
 
-`.github/workflows/ci.yml` 在 `main`、`user`、`admin`、`task`、`chat`、`redis` 推送及所有PR上执行。流水线先判断本次改动的范围，再由互相独立的四类检查各自决定是否执行：改动与某类检查无关时，该检查跳过内部步骤直接通过，不会被无关改动连带失败。推送到 `main`、手动触发、拿不到对比基准或改动了 `.github/` 时，全部检查都执行。
+`.github/workflows/ci.yml` 在 `main`、`user`、`admin`、`task`、`chat`、`redis`、`Frontend` 推送及所有PR上执行。流水线先判断本次改动的范围，再由互相独立的四类检查各自决定是否执行：改动与某类检查无关时，该检查跳过内部步骤直接通过，不会被无关改动连带失败。推送到 `main`、手动触发、拿不到对比基准或改动了 `.github/` 时，全部检查都执行。
 
 | 检查 | 内容 | 何时执行 |
 |---|---|---|
