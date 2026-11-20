@@ -71,10 +71,21 @@
               </el-button>
               <p class="hint" :class="{ blocked: !acceptState.allowed }">{{ acceptState.hint }}</p>
             </template>
+            <template v-if="isOwner && task.status === 'rejected'">
+              <div class="reject-box" role="status">
+                <strong>需求被驳回</strong>
+                <p>{{ task.rejectReason || '管理员没有填写具体理由。' }}</p>
+              </div>
+              <el-button type="primary" size="large" class="wide" @click="$router.push(`/tasks/${task.id}/edit`)">修改后重新提交</el-button>
+              <el-button size="large" class="wide" :loading="actionLoading" @click="handleWithdraw">删除需求</el-button>
+            </template>
             <template v-if="isOwner && task.status === 'published' && !orderDetail">
               <el-button size="large" class="wide" :loading="actionLoading" @click="handleWithdraw">撤回需求</el-button>
             </template>
-            <p v-if="isOwner && task.status === 'pending_review'" class="hint">需求正在等待管理员审核，通过后会出现在需求广场。</p>
+            <template v-if="isOwner && task.status === 'pending_review'">
+              <p class="hint">需求正在等待管理员审核，通过后会出现在需求广场。审核前仍可修改。</p>
+              <el-button size="large" class="wide" @click="$router.push(`/tasks/${task.id}/edit`)">修改内容</el-button>
+            </template>
             <p v-if="userStore.isAdmin" class="hint">管理员只负责审核与监管，不参与接单。<router-link v-if="task.status === 'pending_review'" to="/admin/tasks?status=pending_review">去审核</router-link></p>
             <router-link v-if="task.taskType === 'TEAM' && task.chatGroupId && (isOwner || orderDetail)" :to="`/chat/${task.chatGroupId}`" class="text-link">进入组队群聊</router-link>
             <router-link v-if="task.taskType === 'TEAM' && isOwner" to="/my-orders" class="text-link">查看成员订单</router-link>
@@ -262,7 +273,12 @@ async function handleAccept() {
 /** 撤回需求：后端在已有订单历史时改为取消以保留审计，否则物理删除。 */
 async function handleWithdraw() {
   try {
-    await ElMessageBox.confirm('撤回后需求将从广场下架，无法恢复。', '撤回需求', { type: 'warning', confirmButtonText: '撤回需求', cancelButtonText: '保留' })
+    const rejected = task.value.status === 'rejected'
+    await ElMessageBox.confirm(
+      rejected ? '删除后这条需求无法恢复。' : '撤回后需求将从广场下架，无法恢复。',
+      rejected ? '删除需求' : '撤回需求',
+      { type: 'warning', confirmButtonText: rejected ? '删除需求' : '撤回需求', cancelButtonText: '保留' }
+    )
   } catch { return }
   actionLoading.value = true
   try {
@@ -373,6 +389,14 @@ onMounted(async () => {
 .offer-actions:empty { display: none; }
 .wide { width: 100%; margin: 0 !important; }
 .hint { color: var(--ink-2); font-size: var(--fs-sm); }
+.reject-box {
+  padding: 10px 12px;
+  border-left: 3px solid var(--danger);
+  background: var(--danger-wash);
+  border-radius: 0 6px 6px 0;
+}
+.reject-box strong { color: var(--danger); font-size: var(--fs-sm); }
+.reject-box p { margin-top: 2px; white-space: pre-wrap; font-size: var(--fs-sm); }
 .hint.blocked { color: var(--danger); }
 .hint a { margin-left: 6px; }
 .text-link { color: var(--mint); font-size: var(--fs-sm); font-weight: 500; }

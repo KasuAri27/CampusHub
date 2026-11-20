@@ -52,6 +52,7 @@
       <div class="selects">
         <el-select :model-value="filters.status" size="default" aria-label="状态" @update:model-value="v => update({ status: v })">
           <el-option v-if="userStore.isAdmin" label="待审核" value="pending_review" />
+          <el-option v-if="userStore.isAdmin" label="被驳回" value="rejected" />
           <el-option label="待接单" value="published" />
           <el-option label="进行中" value="in_progress" />
           <el-option label="已完成" value="completed" />

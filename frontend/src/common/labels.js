@@ -10,7 +10,9 @@ export const TASK_STATUS = {
   published: { label: '待接单', tone: 'brand' },
   in_progress: { label: '进行中', tone: 'info' },
   completed: { label: '已完成', tone: 'muted' },
-  cancelled: { label: '已取消', tone: 'muted' }
+  cancelled: { label: '已取消', tone: 'muted' },
+  // 2026-11-20 新增（TODO §1.1）：管理员驳回后可由发布者修改并重新提交
+  rejected: { label: '被驳回', tone: 'danger' }
 }
 
 /**

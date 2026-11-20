@@ -9,6 +9,7 @@ const routes = [
   { path: '/login', name: 'Login', component: () => import('@/views/LoginRegister.vue'), meta: { bare: true } },
   { path: '/', name: 'TaskList', component: () => import('@/task/TaskListView.vue') },
   { path: '/tasks/publish', name: 'TaskPublish', component: () => import('@/task/TaskPublishView.vue'), meta: { requiresAuth: true } },
+  { path: '/tasks/:id/edit', name: 'TaskEdit', component: () => import('@/task/TaskPublishView.vue'), meta: { requiresAuth: true } },
   { path: '/tasks/:id', name: 'TaskDetail', component: () => import('@/task/TaskDetailView.vue') },
   { path: '/my-tasks', name: 'MyTasks', component: () => import('@/task/MyTasksView.vue'), meta: { requiresAuth: true } },
   { path: '/my-orders', name: 'MyOrders', component: () => import('@/order/MyOrdersView.vue'), meta: { requiresAuth: true } },

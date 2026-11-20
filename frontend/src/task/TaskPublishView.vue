@@ -1,19 +1,32 @@
 <template>
   <div class="publish page">
-    <PageHeader title="发布需求" description="选好类型，填写详情，提交后由管理员审核，通过后出现在需求广场。" />
+    <PageHeader
+      :title="editId ? '修改需求' : '发布需求'"
+      :description="editId ? '修改后重新提交，管理员审核通过后出现在需求广场。需求类型不能更改。' : '选好类型，填写详情，提交后由管理员审核，通过后出现在需求广场。'"
+    />
 
-    <ol class="steps" aria-label="发布步骤">
+    <div v-if="editId && editError" class="blocked panel" role="alert">
+      <h2>无法修改这条需求</h2>
+      <p>{{ editError }}</p>
+      <el-button @click="$router.push(`/tasks/${editId}`)">返回需求详情</el-button>
+    </div>
+    <div v-else-if="editId && editTask?.status === 'rejected'" class="reject-note" role="status">
+      <strong>管理员的驳回理由</strong>
+      <p>{{ editTask.rejectReason || '管理员没有填写具体理由。' }}</p>
+    </div>
+
+    <ol v-if="!editId" class="steps" aria-label="发布步骤">
       <li :class="{ on: !selectedType, done: selectedType }"><span class="num">1</span>选择类型</li>
       <li :class="{ on: selectedType }"><span class="num">2</span>填写详情</li>
     </ol>
 
-    <div v-if="blocked" class="blocked panel" role="alert">
+    <div v-if="blocked && !(editId && editError)" class="blocked panel" role="alert">
       <h2>暂时不能发布</h2>
       <p>你的信用分为 <span class="num">{{ userStore.creditScore }}</span>，低于发布门槛 70 分。信用分每日零点恢复 1 分，恢复到 70 分后即可发布。</p>
       <el-button @click="$router.push('/my-orders')">查看我的订单</el-button>
     </div>
 
-    <div v-else class="layout">
+    <div v-else-if="!editId || editTask" v-loading="editLoading" class="layout">
       <section v-if="!selectedType" class="directory" aria-label="需求类型">
         <button
           v-for="(meta, type) in TASK_TYPE"
@@ -36,9 +49,16 @@
         <div class="form-head">
           <span class="dir-plate">{{ TASK_TYPE[selectedType].short }}</span>
           <h2>{{ TASK_TYPE[selectedType].name }}</h2>
-          <button type="button" class="change" @click="selectedType = null">更换类型</button>
+          <button v-if="!editId" type="button" class="change" @click="selectedType = null">更换类型</button>
         </div>
-        <TaskForm :task-type="selectedType" @submitted="onSubmitted" @cancel="selectedType = null" />
+        <TaskForm
+          :key="editId || selectedType"
+          :task-type="selectedType"
+          :task-id="editId"
+          :initial="editTask"
+          @submitted="onSubmitted"
+          @cancel="onCancel"
+        />
       </section>
 
       <aside class="notes">
@@ -56,20 +76,29 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import TaskForm from '@/task/TaskForm.vue'
 import PageHeader from '@/common/ui/PageHeader.vue'
+import taskApi from '@/task/taskApi'
 import { useUserStore } from '@/user/userStore'
 import { TASK_TYPE } from '@/common/labels'
 
 /**
  * 发布需求：先选类型再填表单。信用分低于 70 时直接说明原因，不展示表单（后端同样拒绝）。
  * TaskForm 会把草稿存在 localStorage 的 campusHubTaskDraft，这里据此标出有草稿的类型。
+ * 路由带 id（/tasks/:id/edit）时为修改并重新提交（API 契约 3.6）：只有发布者本人、
+ * 且需求处于待审核或被驳回时可改，类型固定为原需求类型；最终校验以后端为准。
  */
+const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const selectedType = ref(null)
+
+const editId = computed(() => (route.params.id ? Number(route.params.id) : null))
+const editTask = ref(null)
+const editLoading = ref(false)
+const editError = ref('')
 
 const blocked = computed(() => userStore.creditScore < 70)
 const draftType = computed(() => {
@@ -85,6 +114,34 @@ function selectType(type) {
 function onSubmitted(taskId) {
   router.push(taskId ? `/tasks/${taskId}` : '/my-tasks')
 }
+
+function onCancel() {
+  if (editId.value) router.push(`/tasks/${editId.value}`)
+  else selectedType.value = null
+}
+
+async function loadEditTask() {
+  editLoading.value = true
+  try {
+    const task = (await taskApi.getById(editId.value)).data.data
+    if (Number(task.publisher?.userId) !== Number(userStore.userId)) {
+      editError.value = '只能修改自己发布的需求。'
+    } else if (!['pending_review', 'rejected'].includes(task.status)) {
+      editError.value = '只有待审核或被驳回的需求可以修改，这条需求已经进入后续流程。'
+    } else {
+      editTask.value = task
+      selectedType.value = task.taskType
+    }
+  } catch {
+    editError.value = '需求不存在，或你没有查看权限。'
+  } finally {
+    editLoading.value = false
+  }
+}
+
+onMounted(() => {
+  if (editId.value) loadEditTask()
+})
 </script>
 
 <style scoped>
@@ -208,6 +265,16 @@ function onSubmitted(taskId) {
 .notes li + li { margin-top: 6px; }
 
 .blocked { padding: 24px; max-width: 560px; }
+.reject-note {
+  margin-bottom: 18px;
+  padding: 12px 16px;
+  border-left: 3px solid var(--danger);
+  border-radius: 0 var(--r-card) var(--r-card) 0;
+  background: var(--danger-wash);
+  color: var(--ink);
+}
+.reject-note strong { color: var(--danger); font-size: var(--fs-sm); }
+.reject-note p { margin-top: 4px; white-space: pre-wrap; }
 .blocked h2 { font-size: var(--fs-lg); margin-bottom: 6px; }
 .blocked p { color: var(--ink-2); margin-bottom: 16px; }
 

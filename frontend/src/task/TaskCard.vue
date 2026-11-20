@@ -14,6 +14,7 @@
     <p class="desc">{{ task.description }}</p>
 
     <p v-if="typeLine" class="type-line">{{ typeLine }}</p>
+    <p v-if="task.status === 'rejected'" class="reject-line">驳回理由：{{ task.rejectReason || '管理员未填写' }}</p>
 
     <div class="card-foot">
       <span class="publisher">
@@ -148,6 +149,15 @@ const typeLine = computed(() => {
   border-left: 2px solid var(--mint-line);
 }
 
+/* 被驳回理由：只有发布者本人能拿到 rejectReason（API 契约 3.3） */
+.reject-line {
+  font-size: var(--fs-sm);
+  color: var(--danger);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .card-foot {
   margin-top: auto;
   padding-top: 10px;

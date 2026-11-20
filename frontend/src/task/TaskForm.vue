@@ -232,12 +232,12 @@
 
     <!-- 提交按钮 -->
     <div class="form-actions">
-      <el-button size="large" @click="$emit('cancel')">返回选择类型</el-button>
+      <el-button size="large" @click="$emit('cancel')">{{ editing ? '取消修改' : '返回选择类型' }}</el-button>
       <el-button type="primary" size="large" :loading="submitting" @click="submitForm">
         <svg v-if="!submitting" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;margin-right:6px">
           <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
         </svg>
-        {{ submitting ? '提交中…' : '提交审核' }}
+        {{ submitting ? '提交中…' : (editing ? '重新提交审核' : '提交审核') }}
       </el-button>
     </div>
   </el-form>
@@ -248,11 +248,19 @@ import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import taskApi from '@/task/taskApi'
 import { CAMPUSES, TYPE_CATEGORY_ID } from '@/common/labels'
+import { businessTime } from '@/common/format'
 import { tutoringTotal } from '@/order/money'
 
+/**
+ * taskId 与 initial 同时传入时为编辑模式（API 契约 3.6 修改并重新提交）：
+ * 回填原需求、提交走 PUT，且不读写本地草稿，避免覆盖用户正在写的新需求草稿。
+ */
 const props = defineProps({
-  taskType: { type: String, required: true }
+  taskType: { type: String, required: true },
+  taskId: { type: Number, default: null },
+  initial: { type: Object, default: null }
 })
+const editing = computed(() => props.taskId != null && props.initial != null)
 
 const emit = defineEmits(['submitted', 'cancel'])
 
@@ -403,6 +411,7 @@ const DRAFT_KEY = 'campusHubTaskDraft'
 
 let draftTimer = null
 watch(form, () => {
+  if (editing.value) return
   clearTimeout(draftTimer)
   draftTimer = setTimeout(() => {
     const draft = { ...form, _taskType: props.taskType }
@@ -410,7 +419,20 @@ watch(form, () => {
   }, 500)
 }, { deep: true })
 
+/** 用原需求回填表单；原截止时间已过的清空，让发布者重新选择（后端要求截止时间晚于当前）。 */
+function fillFromInitial(t) {
+  Object.keys(form).forEach(k => {
+    if (t[k] !== undefined && t[k] !== null) form[k] = t[k]
+  })
+  const deadlineMs = businessTime(t.deadline)
+  form.deadline = Number.isFinite(deadlineMs) && deadlineMs > Date.now() ? String(t.deadline).slice(0, 19) : null
+}
+
 onMounted(() => {
+  if (editing.value) {
+    fillFromInitial(props.initial)
+    return
+  }
   try {
     const raw = localStorage.getItem(DRAFT_KEY)
     if (!raw) return
@@ -440,7 +462,8 @@ async function submitForm() {
     const payload = {
       title: form.title,
       description: form.description,
-      categoryId: categoryIdForType(props.taskType),
+      // 编辑时分类与类型都不能改，沿用原需求的分类
+      categoryId: editing.value ? props.initial.categoryId : categoryIdForType(props.taskType),
       taskType: props.taskType,
       campus: form.campus || null,
       reward: props.taskType !== 'TEAM' ? (form.reward ?? null) : null,
@@ -468,6 +491,12 @@ async function submitForm() {
       payload.consultingMode = form.consultingMode
     }
 
+    if (editing.value) {
+      await taskApi.update(props.taskId, payload)
+      ElMessage.success('已重新提交，等待管理员审核')
+      emit('submitted', props.taskId)
+      return
+    }
     const res = await taskApi.create(payload)
     ElMessage.success('需求已提交，等待管理员审核')
     clearDraft()

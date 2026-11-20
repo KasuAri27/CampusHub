@@ -61,6 +61,8 @@ const acceptedTasks = ref([])
 const tabs = [
   { key: 'published', label: '我发布的' },
   { key: 'accepted', label: '我接单的' },
+  { key: 'reviewing', label: '待审核' },
+  { key: 'rejected', label: '被驳回' },
   { key: 'waiting', label: '等人接单' },
   { key: 'inProgress', label: '进行中' },
   { key: 'completed', label: '已完成' }
@@ -69,6 +71,8 @@ const tabs = [
 const emptyText = {
   published: ['你还没有发布过需求', '先去发布一个需求吧，方便同学帮助你完成任务。'],
   accepted: ['你还没有接过单', '可以去需求广场看看有没有合适的任务。'],
+  reviewing: ['没有待审核的需求', '刚发布或修改后重新提交的需求，会在管理员审核前显示在这里。'],
+  rejected: ['没有被驳回的需求', '被管理员驳回的需求会显示在这里，可以查看理由并修改后重新提交。'],
   waiting: ['没有等待接单的需求', '你发布且已通过审核、还没人接的需求会显示在这里。'],
   inProgress: ['没有进行中的需求', '你发布的或接下的、正在进行的需求会显示在这里。'],
   completed: ['暂无已完成的需求', '你发布的或接下的已完成需求都会显示在这里。']
@@ -89,6 +93,8 @@ const lists = computed(() => {
     published: mine,
     accepted: taken,
     // 未被接单：已过审核、正在广场等人接的需求（待审核的只在“我发布的”里出现）
+    reviewing: mine.filter(t => t.status === 'pending_review'),
+    rejected: mine.filter(t => t.status === 'rejected'),
     waiting: mine.filter(t => t.status === 'published'),
     inProgress: [...mine.filter(t => t.status === 'in_progress'), ...taken.filter(t => t.status === 'in_progress')],
     completed: [...mine.filter(t => t.status === 'completed'), ...taken.filter(t => t.status === 'completed')]

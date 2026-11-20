@@ -28,6 +28,7 @@
               <router-link :to="`/tasks/${row.id}`">{{ row.title }}</router-link>
             </div>
             <div class="cell-sub">#{{ row.id }}<template v-if="row.campus">，{{ row.campus }}</template>，{{ formatDateTime(row.publishedAt) }} 提交</div>
+            <div v-if="row.status === 'rejected' && row.rejectReason" class="cell-reject">驳回理由：{{ row.rejectReason }}</div>
           </template>
         </el-table-column>
         <el-table-column label="金额" width="96" align="right">
@@ -66,7 +67,7 @@
     <Pagination :page="pagination.page" :page-size="pagination.pageSize" :total="pagination.total" @page-change="p => { pagination.page = p; fetchTasks() }" />
 
     <el-dialog v-model="reject.visible" title="驳回需求" width="440px">
-      <p class="dialog-sub">驳回「{{ reject.row?.title }}」后需求会被取消，理由会通过系统通知发给发布者。</p>
+      <p class="dialog-sub">驳回「{{ reject.row?.title }}」后，理由会通过系统通知发给发布者，发布者可以修改后重新提交审核。</p>
       <el-input v-model.trim="reject.reason" type="textarea" :rows="4" maxlength="200" show-word-limit placeholder="说明驳回原因" />
       <template #footer>
         <el-button @click="reject.visible = false">取消</el-button>
@@ -102,6 +103,7 @@ const statusOptions = [
   { label: '待接单', value: 'published' },
   { label: '进行中', value: 'in_progress' },
   { label: '已完成', value: 'completed' },
+  { label: '被驳回', value: 'rejected' },
   { label: '已取消', value: 'cancelled' }
 ]
 
@@ -223,6 +225,7 @@ watch(() => route.query.status, value => {
   font-weight: 600;
 }
 .cell-sub { color: var(--ink-3); font-size: var(--fs-xs); }
+.cell-reject { color: var(--danger); font-size: var(--fs-xs); }
 .muted { color: var(--ink-3); }
 .money { color: var(--amber-ink); font-weight: 600; }
 .dialog-sub { color: var(--ink-2); margin-bottom: 10px; }

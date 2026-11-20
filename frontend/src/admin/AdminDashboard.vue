@@ -63,7 +63,7 @@
     </section>
 
     <el-dialog v-model="rejectDialog.visible" title="驳回需求" width="460px">
-      <p class="dialog-sub">驳回「{{ currentTask?.title }}」后需求会被取消，理由会通过系统通知发给发布者。</p>
+      <p class="dialog-sub">驳回「{{ currentTask?.title }}」后，理由会通过系统通知发给发布者，发布者可以修改后重新提交审核。</p>
       <el-input v-model.trim="rejectDialog.reason" type="textarea" :rows="4" maxlength="200" show-word-limit placeholder="说明需要修改的地方，例如：描述涉及代写作业，不符合平台规则" />
       <div class="quick-reasons">
         <button v-for="r in quickReasons" :key="r" type="button" @click="rejectDialog.reason = r">{{ r }}</button>
