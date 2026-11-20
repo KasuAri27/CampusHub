@@ -1,9 +1,14 @@
 package com.campushub.order;
 
 import com.campushub.common.BusinessException;
+import com.campushub.complaint.ComplaintRepository;
 import com.campushub.notification.NotificationService;
+import com.campushub.payment.PaymentAttempt;
+import com.campushub.payment.PaymentAttemptRepository;
 import com.campushub.task.Task;
+import com.campushub.task.TeamingTask;
 import com.campushub.user.CreditService;
+import com.campushub.user.User;
 import com.campushub.user.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,8 +26,8 @@ public class OrderLifecycleService {
     private final CreditService credit;
     private final NotificationService notifications;
     private final Clock clock;
-    private final com.campushub.payment.PaymentAttemptRepository paymentAttempts;
-    private final com.campushub.complaint.ComplaintRepository complaints;
+    private final PaymentAttemptRepository paymentAttempts;
+    private final ComplaintRepository complaints;
     private final OrderLocks locks;
 
     @Transactional
@@ -53,7 +58,7 @@ public class OrderLifecycleService {
     private void accept(Order order, LocalDateTime acceptedAt) {
         order.setStatus(Order.OrderStatus.completed);
         order.setCompletedAt(acceptedAt);
-        if (!(order.getTask() instanceof com.campushub.task.TeamingTask)
+        if (!(order.getTask() instanceof TeamingTask)
                 || orders.findByTaskId(order.getTask().getId()).stream().allMatch(o -> o.getStatus() == Order.OrderStatus.completed || o.getStatus() == Order.OrderStatus.cancelled))
             order.getTask().setStatus(Task.TaskStatus.completed);
         if (order.getAmountDue().signum() == 0) {
@@ -112,7 +117,7 @@ public class OrderLifecycleService {
             throw new BusinessException(400, "裁决金额、付款期限或理由不合法");
         // 已发支付二维码可能仍可付款；没有关闭渠道原单之前，不能擅自重写金额。
         if (amount.compareTo(order.getAmountDue()) != 0 && paymentAttempts.existsByOrderIdAndStatusIn(orderId,
-                java.util.List.of(com.campushub.payment.PaymentAttempt.Status.PENDING, com.campushub.payment.PaymentAttempt.Status.PAID)))
+                List.of(PaymentAttempt.Status.PENDING, PaymentAttempt.Status.PAID)))
             throw new BusinessException(409, "已签发支付单；请先完成渠道关单或退款核对，不能直接变更金额");
         if (order.getPaymentStatus() == Order.PaymentStatus.paid) {
             order.setDisputed(false);
@@ -152,7 +157,7 @@ public class OrderLifecycleService {
     }
 
     public void requireAdmin(Long actorId) {
-        if (actorId == null || users.findById(actorId).filter(u -> u.getRole() == com.campushub.user.User.Role.admin && u.getStatus() == 1).isEmpty())
+        if (actorId == null || users.findById(actorId).filter(u -> u.getRole() == User.Role.admin && u.getStatus() == 1).isEmpty())
             throw new BusinessException(403, "无管理员权限");
     }
 
@@ -165,7 +170,7 @@ public class OrderLifecycleService {
         if (expected == null || !expected.equals(actual)) throw new BusinessException(403, message);
     }
     private void notifyAdmins(Order order, String message) {
-        users.findAll().stream().filter(u -> u.getRole() == com.campushub.user.User.Role.admin).forEach(u ->
+        users.findAll().stream().filter(u -> u.getRole() == User.Role.admin).forEach(u ->
                 notifications.createNotification(u.getId(), "订单需人工处理", "订单#" + order.getId() + "；金额：" + order.getAmountDue() + "；" + message, "ADMIN_ACTION"));
     }
     private void resolveComplaints(Long orderId, Long administratorId, String reason) {
