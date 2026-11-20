@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.*;
 import org.springframework.http.MediaType;
 import java.math.BigDecimal;
 import java.time.*;
+import com.campushub.task.TaskChatView;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -43,6 +44,7 @@ class CommerceFlowIntegrationTest {
     @Autowired CategoryRepository categories;
     @Autowired OrderRepository orders;
     @Autowired OrderService orderService;
+    @Autowired com.campushub.task.TaskReadService taskRead;
     @Autowired OrderLifecycleService lifecycle;
     @Autowired PaymentAttemptRepository attempts;
     @Autowired SettlementRecordRepository settlements;
@@ -233,6 +235,33 @@ class CommerceFlowIntegrationTest {
         mvc.perform(get("/v1/tasks/{id}", task).header("Authorization", token(provider))).andExpect(jsonPath("$.data.pickupCode").value("A-1234"));
         mvc.perform(get("/v1/tasks/{id}", task).header("Authorization", token(stranger))).andExpect(jsonPath("$.data.pickupCode").doesNotExist());
         mvc.perform(get("/v1/tasks/{id}", task)).andExpect(jsonPath("$.data.pickupCode").doesNotExist());
+    }
+
+    /** hasOpenObligations 的 JPQL 在真实库里逐状态验证，判定与旧的群聊清理条件一致。 */
+    @Test void chatViewReportsOpenObligationsExactlyLikeLegacyGroupCleanupRule() throws Exception {
+        long task = publish(validTask());
+        assertThat(taskRead.findChatView(task).orElseThrow().hasOpenObligations()).isFalse();   // 尚无订单
+
+        long order = accept(task, provider);                                                     // 接单后待付款 unpaid
+        TaskChatView view = taskRead.findChatView(task).orElseThrow();
+        assertThat(view.hasOpenObligations()).isTrue();
+        assertThat(view.team()).isFalse();
+        assertThat(view.requesterId()).isEqualTo(requester.getId());
+        assertThat(view.maxMembers()).isNull();
+        assertThat(view.status()).isEqualTo("in_progress");
+
+        // 已付款但未登记结算：仍需保留；登记后释放。
+        jdbc.update("UPDATE orders SET payment_status = 'paid', settlement_status = 'pending', disputed = false WHERE id = ?", order);
+        assertThat(taskRead.findChatViews(List.of(task)).get(task).hasOpenObligations()).isTrue();
+        jdbc.update("UPDATE orders SET settlement_status = 'recorded' WHERE id = ?", order);
+        assertThat(taskRead.findChatViews(List.of(task)).get(task).hasOpenObligations()).isFalse();
+        // 争议中无论资金状态都保留。
+        jdbc.update("UPDATE orders SET disputed = true WHERE id = ?", order);
+        assertThat(taskRead.findChatViews(List.of(task)).get(task).hasOpenObligations()).isTrue();
+        // 无需付款且无争议的订单（如组队/免费）不构成义务。
+        jdbc.update("UPDATE orders SET payment_status = 'not_required', settlement_status = 'not_required', disputed = false WHERE id = ?", order);
+        assertThat(taskRead.findChatViews(List.of(task)).get(task).hasOpenObligations()).isFalse();
+        assertThat(taskRead.findChatView(Long.MAX_VALUE)).isEmpty();
     }
 
     @Test void unpaidDebtDeductsExactlyOnceThenAdministratorCanApplyAuditedPenalty() throws Exception {
