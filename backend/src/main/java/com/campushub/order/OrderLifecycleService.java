@@ -1,9 +1,14 @@
 package com.campushub.order;
 
 import com.campushub.common.BusinessException;
+import com.campushub.complaint.ComplaintRepository;
 import com.campushub.notification.NotificationService;
+import com.campushub.payment.PaymentAttempt;
+import com.campushub.payment.PaymentAttemptRepository;
 import com.campushub.task.Task;
+import com.campushub.task.TeamingTask;
 import com.campushub.user.CreditService;
+import com.campushub.user.User;
 import com.campushub.user.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,8 +26,8 @@ public class OrderLifecycleService {
     private final CreditService credit;
     private final NotificationService notifications;
     private final Clock clock;
-    private final com.campushub.payment.PaymentAttemptRepository paymentAttempts;
-    private final com.campushub.complaint.ComplaintRepository complaints;
+    private final PaymentAttemptRepository paymentAttempts;
+    private final ComplaintRepository complaints;
     private final OrderLocks locks;
 
     @Transactional
@@ -34,9 +39,9 @@ public class OrderLifecycleService {
         if (order.getStatus() != Order.OrderStatus.in_progress) throw new BusinessException(409, "订单状态无法提交完成");
         LocalDateTime now = LocalDateTime.now(clock);
         order.setCompletionSubmittedAt(now);
-        order.setAcceptanceDueAt(now.plusHours(24));
+        order.setAcceptanceDueAt(now.plusHours(OrderRules.ACCEPTANCE_HOURS));
         order.setStatus(Order.OrderStatus.awaiting_acceptance);
-        notifications.createNotification(order.getPayerId(), "请验收服务", "服务方已提交完成，24小时无异议将自动验收。", "ACCEPTANCE");
+        notifications.createNotification(order.getPayerId(), "请验收服务", "服务方已提交完成，" + OrderRules.ACCEPTANCE_HOURS + "小时无异议将自动验收。", "ACCEPTANCE");
     }
 
     @Transactional
@@ -53,13 +58,13 @@ public class OrderLifecycleService {
     private void accept(Order order, LocalDateTime acceptedAt) {
         order.setStatus(Order.OrderStatus.completed);
         order.setCompletedAt(acceptedAt);
-        if (!(order.getTask() instanceof com.campushub.task.TeamingTask)
+        if (!(order.getTask() instanceof TeamingTask)
                 || orders.findByTaskId(order.getTask().getId()).stream().allMatch(o -> o.getStatus() == Order.OrderStatus.completed || o.getStatus() == Order.OrderStatus.cancelled))
             order.getTask().setStatus(Task.TaskStatus.completed);
         if (order.getAmountDue().signum() == 0) {
             order.setReviewEligibleAt(acceptedAt);
         } else {
-            order.setPaymentDueAt(acceptedAt.plusHours(1));
+            order.setPaymentDueAt(acceptedAt.plusHours(OrderRules.PAYMENT_WINDOW_HOURS));
         }
         notifications.createNotification(order.getPayerId(), "验收已完成", "有偿订单请在验收后1小时内付款；无偿订单可直接评价。", "ACCEPTED");
         notifications.createNotification(order.getPayeeId(), "服务已验收", "验收已完成，付款及结算状态请在订单中查看。", "ACCEPTED");
@@ -90,10 +95,10 @@ public class OrderLifecycleService {
         }
         if (order.getPaymentStatus() != Order.PaymentStatus.unpaid || order.getPaymentDueAt() == null) return;
         if (!order.getPaymentDueAt().isAfter(now) && order.getOverdueAt() == null) {
-            credit.adjust(order.getPayerId(), -10, "overdue:" + orderId, "验收后1小时未付款");
+            credit.adjust(order.getPayerId(), -OrderRules.OVERDUE_PENALTY_POINTS, "overdue:" + orderId, "验收后" + OrderRules.PAYMENT_WINDOW_HOURS + "小时未付款");
             order.setOverdueAt(order.getPaymentDueAt());
-            order.setEscalationDueAt(order.getPaymentDueAt().plusHours(24));
-            notifications.createNotification(order.getPayerId(), "付款逾期扣分", "本订单已扣10分；24小时后仍未付款将由管理员介入。", "OVERDUE");
+            order.setEscalationDueAt(order.getPaymentDueAt().plusHours(OrderRules.ESCALATION_GRACE_HOURS));
+            notifications.createNotification(order.getPayerId(), "付款逾期扣分", "本订单已扣" + OrderRules.OVERDUE_PENALTY_POINTS + "分；" + OrderRules.ESCALATION_GRACE_HOURS + "小时后仍未付款将由管理员介入。", "OVERDUE");
         }
         if (order.getEscalationDueAt() != null && !order.getEscalationDueAt().isAfter(now) && order.getEscalatedAt() == null) {
             order.setEscalatedAt(now);
@@ -112,7 +117,7 @@ public class OrderLifecycleService {
             throw new BusinessException(400, "裁决金额、付款期限或理由不合法");
         // 已发支付二维码可能仍可付款；没有关闭渠道原单之前，不能擅自重写金额。
         if (amount.compareTo(order.getAmountDue()) != 0 && paymentAttempts.existsByOrderIdAndStatusIn(orderId,
-                java.util.List.of(com.campushub.payment.PaymentAttempt.Status.PENDING, com.campushub.payment.PaymentAttempt.Status.PAID)))
+                List.of(PaymentAttempt.Status.PENDING, PaymentAttempt.Status.PAID)))
             throw new BusinessException(409, "已签发支付单；请先完成渠道关单或退款核对，不能直接变更金额");
         if (order.getPaymentStatus() == Order.PaymentStatus.paid) {
             order.setDisputed(false);
@@ -129,7 +134,7 @@ public class OrderLifecycleService {
         order.setSettlementStatus(amount.signum() == 0 ? Order.SettlementStatus.not_required : Order.SettlementStatus.pending);
         order.setPaymentDueAt(amount.signum() == 0 ? null : LocalDateTime.now(clock).plusHours(paymentHours));
         order.setReviewEligibleAt(amount.signum() == 0 ? LocalDateTime.now(clock) : null);
-        order.setEscalationDueAt(order.getOverdueAt() == null || amount.signum() == 0 ? null : order.getPaymentDueAt().plusHours(24));
+        order.setEscalationDueAt(order.getOverdueAt() == null || amount.signum() == 0 ? null : order.getPaymentDueAt().plusHours(OrderRules.ESCALATION_GRACE_HOURS));
         order.setEscalatedAt(null);
         order.getTask().setStatus(Task.TaskStatus.completed);
         resolveComplaints(orderId, adminId, reason);
@@ -152,7 +157,7 @@ public class OrderLifecycleService {
     }
 
     public void requireAdmin(Long actorId) {
-        if (actorId == null || users.findById(actorId).filter(u -> u.getRole() == com.campushub.user.User.Role.admin && u.getStatus() == 1).isEmpty())
+        if (actorId == null || users.findById(actorId).filter(u -> u.getRole() == User.Role.admin && u.getStatus() == 1).isEmpty())
             throw new BusinessException(403, "无管理员权限");
     }
 
@@ -165,7 +170,7 @@ public class OrderLifecycleService {
         if (expected == null || !expected.equals(actual)) throw new BusinessException(403, message);
     }
     private void notifyAdmins(Order order, String message) {
-        users.findAll().stream().filter(u -> u.getRole() == com.campushub.user.User.Role.admin).forEach(u ->
+        users.findAll().stream().filter(u -> u.getRole() == User.Role.admin).forEach(u ->
                 notifications.createNotification(u.getId(), "订单需人工处理", "订单#" + order.getId() + "；金额：" + order.getAmountDue() + "；" + message, "ADMIN_ACTION"));
     }
     private void resolveComplaints(Long orderId, Long administratorId, String reason) {

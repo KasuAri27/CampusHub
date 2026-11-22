@@ -23,6 +23,8 @@ public class TaskDTO {
     private Boolean hasReview;
     private BigDecimal reward;
     private String status;
+    /** 最近一次驳回理由；只返回给发布者与管理员。 */
+    private String rejectReason;
     private String taskType;
     private String campus;
     private String location;
