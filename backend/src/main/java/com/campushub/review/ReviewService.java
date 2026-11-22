@@ -5,6 +5,7 @@ import com.campushub.notification.NotificationService;
 import com.campushub.order.Order;
 import com.campushub.order.Order.OrderStatus;
 import com.campushub.order.OrderRepository;
+import com.campushub.order.OrderRules;
 import com.campushub.user.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -53,7 +54,7 @@ public class ReviewService {
         if (reviewRepository.existsByOrder_Id(orderId)) {
             throw new BusinessException(409, "该订单已评价，请勿重复提交");
         }
-        if (!LocalDateTime.now(clock).isBefore(order.getReviewEligibleAt().plusDays(7))) {
+        if (!LocalDateTime.now(clock).isBefore(order.getReviewEligibleAt().plusDays(OrderRules.REVIEW_WINDOW_DAYS))) {
             throw new BusinessException(400, "评价期限已过，系统将默认四星");
         }
         saveReview(order, score, comment, false);
@@ -64,9 +65,9 @@ public class ReviewService {
     public void submitDefaultReview(Long orderId) {
         Order order = orderRepository.findLockedById(orderId).orElseThrow(() -> new BusinessException(404, "订单不存在"));
         if (order.isDisputed() || order.getStatus() != OrderStatus.completed || order.getReviewEligibleAt() == null
-                || LocalDateTime.now(clock).isBefore(order.getReviewEligibleAt().plusDays(7))
+                || LocalDateTime.now(clock).isBefore(order.getReviewEligibleAt().plusDays(OrderRules.REVIEW_WINDOW_DAYS))
                 || !Boolean.TRUE.equals(order.getTask().getCategory().getHasReview()) || reviewRepository.existsByOrder_Id(orderId)) return;
-        saveReview(order, 4, "系统默认四星", true);
+        saveReview(order, OrderRules.DEFAULT_REVIEW_SCORE, "系统默认四星", true);
     }
 
     private void saveReview(Order order, int score, String comment, boolean automatic) {
@@ -103,7 +104,7 @@ public class ReviewService {
         }
 
         // 单向评价只影响服务提供方；默认四星与手动四星均不加减分。
-        int delta = score == 5 ? 1 : score <= 2 ? -1 : 0;
+        int delta = OrderRules.reviewCreditDelta(score);
         creditService.adjust(order.getPayeeId(), delta, "review:" + order.getId(), automatic ? "系统默认四星" : "订单评分：" + score);
     }
 
