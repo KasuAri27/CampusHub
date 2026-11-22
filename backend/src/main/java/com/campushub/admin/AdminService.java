@@ -525,6 +525,8 @@ public class AdminService {
                 .requesterEmail(t.getRequester() != null ? t.getRequester().getEmail() : "")
                 .providerStudentId(providerSid) // 新增：接单者学号
                 .requesterComment(comment)      // 新增：发布者评价
+                // 最近一次驳回理由，仅 rejected 状态有值（模块契约 §7 / TODO §1.1）
+                .rejectReason(t.getRejectReason())
                 .build();
     }
 }

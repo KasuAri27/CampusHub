@@ -5,6 +5,7 @@ import com.campushub.category.CategoryService;
 import com.campushub.common.BusinessException;
 import com.campushub.notification.NotificationService;
 import com.campushub.order.OrderRepository;
+import com.campushub.task.Task;
 import com.campushub.task.TaskService;
 import com.campushub.user.CreditService;
 import com.campushub.user.User;
@@ -176,5 +177,20 @@ class AdminServiceDomainWriteTest {
 
         assertThatThrownBy(() -> service.deleteCategory(1L, 1))
                 .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getCode()).isEqualTo(409));
+    }
+
+    @Test
+    void rejectedTaskDtoCarriesRejectReason() {
+        Task task = com.campushub.support.BusinessFixtures.task(user(5, User.Role.user));
+        task.setStatus(Task.TaskStatus.rejected);
+        task.setRejectReason("信息不合规");
+        when(taskService.rejectByAdmin(10L, "信息不合规")).thenReturn(task);
+        // toTaskDTO 会查订单，用空列表即可
+        when(orders.findByTaskId(10L)).thenReturn(java.util.List.of());
+
+        TaskManagementDTO dto = service.rejectTask(1L, 10L, "信息不合规");
+
+        assertThat(dto.getStatus()).isEqualTo("rejected");
+        assertThat(dto.getRejectReason()).isEqualTo("信息不合规");
     }
 }
