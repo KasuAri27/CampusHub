@@ -20,6 +20,11 @@ export default {
     return http.post('/tasks', data)
   },
 
+  /** 修改并重新提交（API 契约 3.6）：仅待审核或被驳回的需求，成功后回到待审核 */
+  update(id, data) {
+    return http.put(`/tasks/${id}`, data)
+  },
+
   deleteTask(id) {
     return http.delete(`/tasks/${id}`)
   }

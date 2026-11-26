@@ -1,382 +1,189 @@
 <template>
-  <div class="task-card" @click="$router.push(`/tasks/${task.id}`)">
-    <!-- 顶部装饰条 -->
-    <div class="card-accent" :class="statusClass"></div>
-    
-    <!-- 卡片内容 -->
-    <div class="card-content">
-      <!-- 顶部：状态标签 + 报酬 -->
-      <div class="card-header">
-        <span class="status-badge" :class="statusClass">
-          <span class="status-dot"></span>
-          {{ statusLabel }}
-        </span>
-        <span class="reward" v-if="task.taskType !== 'TEAM' && task.taskType === 'FLEA' && (task.tradeMode || 'SELL') === 'BUY'">
-          收物
-        </span>
-        <span class="reward" v-else-if="task.taskType !== 'TEAM' && task.reward">
-          <span class="currency">&#xFFE5;</span>{{ task.reward }}
-        </span>
-        <span class="reward free" v-else-if="task.taskType !== 'TEAM'">免费互助</span>
-      </div>
-      
-      <!-- 标题 -->
-      <h4 class="card-title">{{ task.title }}</h4>
-      
-      <!-- 描述 -->
-      <p class="card-desc">{{ truncate(task.description, 60) }}</p>
-      
-      <!-- 底部信息 -->
-      <div class="card-footer">
-        <div class="footer-left">
-          <span class="category-tag">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/>
-              <line x1="7" y1="7" x2="7.01" y2="7"/>
-            </svg>
-            {{ task.categoryName }}
-          </span>
-          <span class="campus-tag" v-if="task.campus">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
-              <circle cx="12" cy="10" r="3"/>
-            </svg>
-            {{ task.campus }}
-          </span>
-          <span class="deadline-tag" v-if="task.deadline">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-            </svg>
-            {{ formatDeadline(task.deadline) }}
-          </span>
-        </div>
-        <div class="footer-right">
-          <span class="publisher">{{ task.publisher?.nickname || '匿名' }}</span>
-          <span class="time">{{ formatDate(task.publishedAt) }}</span>
-        </div>
-      </div>
+  <router-link :to="`/tasks/${task.id}`" class="task-card">
+    <div class="card-top">
+      <span class="type-plate">{{ typeMeta.short }}</span>
+      <span v-if="task.campus" class="campus">{{ task.campus }}</span>
+      <span class="price" :class="{ 'is-free': priceTag.free }">
+        <template v-if="priceTag.prefix">{{ priceTag.prefix }}</template>
+        <template v-if="priceTag.amount"><span class="yen">¥</span><span class="num">{{ priceTag.amount }}</span></template>
+        <template v-else>{{ priceTag.text }}</template>
+      </span>
     </div>
-    
-    <!-- 悬浮箭头 -->
-    <div class="hover-arrow">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M5 12h14M12 5l7 7-7 7"/>
-      </svg>
+
+    <h3 class="title">{{ task.title }}</h3>
+    <p class="desc">{{ task.description }}</p>
+
+    <p v-if="typeLine" class="type-line">{{ typeLine }}</p>
+    <p v-if="task.status === 'rejected'" class="reject-line">驳回理由：{{ task.rejectReason || '管理员未填写' }}</p>
+
+    <div class="card-foot">
+      <span class="publisher">
+        {{ task.publisher?.nickname || '匿名同学' }}
+        <span v-if="task.publisher?.creditScore != null" class="credit num" title="发布者信用分">{{ task.publisher.creditScore }}</span>
+      </span>
+      <StatusTag v-if="task.status !== 'published'" :label="status.label" :tone="status.tone" />
+      <span v-else-if="deadline.text" class="deadline" :class="{ urgent: deadline.urgent }">{{ deadline.text }}</span>
     </div>
-  </div>
+  </router-link>
 </template>
 
 <script setup>
 import { computed } from 'vue'
+import StatusTag from '@/common/ui/StatusTag.vue'
+import { TASK_STATUS, TASK_TYPE, lookup } from '@/common/labels'
+import { deadlineInfo, formatMoney } from '@/common/format'
 
+/**
+ * 需求卡片：广场、我的需求共用。
+ * 待接单的卡片显示截止提示，其余状态显示状态标签；类型专属的关键信息压成一行，
+ * 让同学不点进详情也能判断能不能接（取送地点、科目时长、组队人数等）。
+ */
 const props = defineProps({ task: { type: Object, required: true } })
 
-const statusMap = {
-  pending_review: ['待审核', 'pending'],
-  published: ['待接单', 'published'],
-  in_progress: ['进行中', 'in-progress'],
-  completed: ['已完成', 'completed'],
-  cancelled: ['已取消', 'cancelled']
-}
+const typeMeta = computed(() => TASK_TYPE[props.task.taskType] || { short: props.task.categoryName || '需求' })
+const status = computed(() => lookup(TASK_STATUS, props.task.status))
+const deadline = computed(() => deadlineInfo(props.task.deadline))
 
-const statusLabel = computed(() => statusMap[props.task.status]?.[0] || props.task.status)
-const statusClass = computed(() => statusMap[props.task.status]?.[1] || 'default')
+/** 价格牌：组队不涉及金额；二手求购显示预算；报酬为 0 显示免费。 */
+const priceTag = computed(() => {
+  const t = props.task
+  if (t.taskType === 'TEAM') return { text: t.maxMembers ? `限 ${t.maxMembers} 人` : '组队', free: true }
+  const amount = formatMoney(t.taskType === 'FLEA' ? (t.itemPrice ?? t.reward) : t.reward)
+  if (!amount || Number(amount) === 0) return { text: '免费', free: true }
+  return { prefix: t.taskType === 'FLEA' && t.tradeMode === 'BUY' ? '预算 ' : '', amount }
+})
 
-function truncate(text, max) { return text?.length > max ? text.slice(0, max) + '...' : text || '' }
-function formatDate(d) { 
-  if (!d) return ''
-  const date = new Date(d)
-  const now = new Date()
-  const diff = now - date
-  
-  if (diff < 60000) return '刚刚'
-  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
-  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
-  if (diff < 604800000) return Math.floor(diff / 86400000) + '天前'
-  
-  return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
-}
-
-// 处理未来时间的格式化
-function formatDeadline(d) {
-  if (!d) return ''
-  const date = new Date(d)
-  return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
+/** 类型专属一行摘要。 */
+const typeLine = computed(() => {
+  const t = props.task
+  switch (t.taskType) {
+    case 'RUNNING':
+      return t.pickupLocation && t.deliveryLocation ? `${t.pickupLocation} 送到 ${t.deliveryLocation}` : ''
+    case 'TUTORING': {
+      const parts = [t.subject, t.durationHours ? `${formatMoney(t.durationHours)} 小时` : '', t.pricePerHour ? `每小时 ¥${formatMoney(t.pricePerHour)}` : '']
+      return parts.filter(Boolean).join('，')
+    }
+    case 'FLEA':
+      return t.tradeMode === 'BUY' ? '求购：接单人卖给发布者' : '出售：接单人向发布者购买'
+    case 'CONSULTING':
+      return t.consultingMode === 'OFFLINE' ? `线下咨询${t.location ? `，${t.location}` : ''}` : '线上咨询'
+    case 'TEAM':
+      return t.location ? `活动地点：${t.location}` : ''
+    default:
+      return t.location || ''
+  }
+})
 </script>
 
 <style scoped>
 .task-card {
-  background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  cursor: pointer;
-  position: relative;
-  transition: all var(--transition-base);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--border-color);
-}
-
-.task-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-xl);
-  border-color: transparent;
-}
-
-.task-card:hover .hover-arrow {
-  opacity: 1;
-  transform: translate(0, -50%);
-}
-
-/* 顶部装饰条 */
-.card-accent {
-  height: 4px;
-  background: linear-gradient(90deg, var(--primary), var(--primary-light));
-}
-
-.card-accent.in-progress {
-  background: linear-gradient(90deg, #3b82f6, #60a5fa); /* 柔和的蓝色渐变 */
-}
-
-.card-accent.completed {
-  background: #94a3b8; /* 灰色 */
-}
-
-.card-accent.cancelled {
-  background: var(--text-muted);
-}
-
-.card-accent.pending {
-  background: linear-gradient(90deg, #f59e0b, #fbbf24);
-}
-
-/* 卡片内容 */
-.card-content {
-  padding: 16px 18px 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-/* 卡片头部 */
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: var(--radius-full);
-  font-size: 12px;
-  font-weight: 500;
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--primary-dark);
-}
-
-.status-badge.in-progress {
-  background: rgba(59, 130, 246, 0.1); /* 浅蓝色背景 */
-  color: #2563eb; /* 适中的蓝色文字 */
-}
-
-.status-badge.completed {
-  background: #f1f5f9; /* 浅灰色背景 */
-  color: #64748b; /* 灰色文字 */
-}
-
-.status-badge.cancelled {
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-}
-
-.status-badge.pending {
-  background: rgba(245, 158, 11, 0.1);
-  color: var(--accent-dark);
-}
-
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-.status-badge.completed .status-dot,
-.status-badge.cancelled .status-dot {
-  animation: none;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.8); }
-}
-
-.reward {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--accent);
-  display: flex;
-  align-items: baseline;
-}
-
-.reward .currency {
-  font-size: 12px;
-  font-weight: 600;
-  margin-right: 2px;
-}
-
-.reward.free {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-muted);
-}
-
-/* 标题 */
-.card-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--text-primary);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* 描述 */
-.card-desc {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.6;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  min-height: 42px;
-}
-
-/* 底部信息 */
-.card-footer {
-  display: flex;
-  flex-direction: column; /* 改为纵向排列（两行） */
-  gap: 10px; /* 上下两行的间距 */
-  padding-top: 12px;
-  border-top: 1px solid var(--border-color);
-  margin-top: 4px;
-}
-
-.footer-left {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap; /* 如果标签很多，允许自动换行 */
-  gap: 6px;
-  width: 100%;
-}
-
-.category-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-full);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.category-tag svg {
-  width: 12px;
-  height: 12px;
-}
-
-.campus-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  background: rgba(59, 130, 246, 0.08);
-  border-radius: var(--radius-full);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--info);
-}
-
-.campus-tag svg {
-  width: 12px;
-  height: 12px;
-}
-
-.footer-right {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end; /* 发布者和时间整体靠右对齐 */
   gap: 8px;
-  font-size: 12px;
-  color: var(--text-muted);
-  width: 100%;
+  padding: 16px 18px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.task-card:hover {
+  border-color: var(--mint-line);
+  box-shadow: 0 2px 10px rgba(15, 91, 70, 0.08);
 }
 
-.publisher {
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-xs);
+}
+/* 类型牌：小号导视牌 */
+.type-plate {
+  padding: 1px 7px;
+  background: var(--pine);
+  color: #fff;
+  border-radius: var(--r-sign);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+.campus { color: var(--ink-2); }
+
+/* 价格牌：杏黄底，金额用 DIN 数字 */
+.price {
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: var(--r-sign);
+  background: var(--apricot-wash);
+  color: var(--amber-ink);
+  font-weight: 600;
+  font-size: var(--fs-sm);
   white-space: nowrap;
 }
+.price .yen { font-size: var(--fs-xs); margin-right: 1px; }
+.price .num { font-size: 17px; }
+.price.is-free { background: #eef2f0; color: var(--ink-2); font-size: var(--fs-xs); }
 
-.footer-right::before {
-  display: none;
+.title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.desc {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.type-line {
+  font-size: var(--fs-sm);
+  color: var(--pine);
+  padding-left: 8px;
+  border-left: 2px solid var(--mint-line);
 }
 
-.time::before {
-  content: '·';
-  margin-right: 8px;
-  color: var(--text-muted);
+/* 被驳回理由：只有发布者本人能拿到 rejectReason（API 契约 3.3） */
+.reject-line {
+  font-size: var(--fs-sm);
+  color: var(--danger);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-
-.deadline-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  background: rgba(239, 68, 68, 0.08); /* 浅红色警示 */
-  border-radius: var(--radius-full);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--error);
-}
-.deadline-tag svg {
-  width: 12px;
-  height: 12px;
-}
-
-/* 悬浮箭头 */
-.hover-arrow {
-  position: absolute;
-  right: 16px;
-  top: 50%;
-  transform: translate(10px, -50%);
-  width: 32px;
-  height: 32px;
-  background: var(--primary);
-  border-radius: 50%;
+.card-foot {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #edf1ef;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: white;
-  opacity: 0;
-  transition: all var(--transition-base);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
 }
-
-.hover-arrow svg {
-  width: 16px;
-  height: 16px;
+.publisher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
+.credit {
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sign);
+  color: var(--ink-2);
+}
+.deadline { white-space: nowrap; }
+.deadline.urgent { color: var(--amber-ink); font-weight: 600; }
 </style>

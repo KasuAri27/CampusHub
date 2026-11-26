@@ -22,6 +22,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useUserStore } from '@/user/userStore'
+import { formatClock, formatDateTime } from '@/common/format'
 
 const props = defineProps({
   conv: Object,
@@ -45,11 +46,12 @@ const displayName = computed(() => {
   return '私聊'
 })
 
+/** 最近消息时间：当天只显示时分，其余显示日期，均按上海时间。 */
 const timeText = computed(() => {
   const t = props.conv.lastMessage?.createdAt
   if (!t) return ''
-  const d = new Date(t)
-  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+  const full = formatDateTime(t)
+  return full.startsWith(formatDateTime(new Date().toISOString()).split(' ')[0]) ? formatClock(t) : full.split(' ')[0]
 })
 
 // 【核心修改点：根据消息类型动态生成预览文本】

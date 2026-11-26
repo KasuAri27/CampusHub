@@ -1,454 +1,315 @@
 <template>
-  <div class="profile-page">
-    <div class="profile-header-banner">
-      <el-upload
-        class="avatar-uploader"
-        action="/v1/files/upload"
-        :headers="uploadHeaders"
-        :show-file-list="false"
-        :before-upload="beforeAvatarUpload"
-        :on-success="handleAvatarUploadSuccess"
-        :on-error="handleAvatarUploadError"
-      >
-        <div class="avatar-large avatar-upload-trigger">
-          <img v-if="avatarPreviewUrl" :src="avatarPreviewUrl" alt="avatar" />
-          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
-          <div class="avatar-upload-mask">
-            <el-icon><Plus /></el-icon>
-            <span>更换头像</span>
+  <div class="profile page" v-loading="loading">
+    <PageHeader title="个人资料" description="昵称、头像和学院可以随时修改；学号、真实姓名与校园邮箱注册后不能更改。" />
+
+    <div class="layout">
+      <aside class="card panel">
+        <button type="button" class="avatar-btn" :disabled="uploading" @click="fileInput?.click()">
+          <img v-if="avatarUrl" :src="avatarUrl" alt="当前头像" />
+          <span v-else class="avatar-fallback">{{ (form.nickname || '同').charAt(0) }}</span>
+          <span class="avatar-mask">{{ uploading ? '上传中…' : '更换头像' }}</span>
+        </button>
+        <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp" class="hidden-input" @change="onFileChosen" />
+        <h2 class="name">{{ form.nickname || '未设置昵称' }}</h2>
+        <p class="role">{{ userStore.isAdmin ? '管理员' : '普通用户' }}<template v-if="profile.studentId">，学号 <span class="num">{{ profile.studentId }}</span></template></p>
+
+        <div v-if="!userStore.isAdmin" class="credit">
+          <div class="credit-top">
+            <span>信用分</span>
+            <span class="credit-value num" :class="creditTone">{{ creditScore }}</span>
           </div>
+          <!-- 信用条：70 分为发布与接单门槛 -->
+          <div class="meter" role="meter" aria-label="信用分" :aria-valuenow="creditScore" aria-valuemin="0" aria-valuemax="100">
+            <span class="meter-fill" :class="creditTone" :style="{ width: `${creditScore}%` }"></span>
+            <span class="meter-mark" title="70 分：发布与接单门槛"></span>
+          </div>
+          <p class="credit-note">{{ creditNote }}</p>
         </div>
-      </el-upload>
+        <p v-if="profile.restricted" class="restricted">账号受限：只能处理本人订单、付款、申诉和账号安全。</p>
+      </aside>
 
-      <div class="user-title-info">
-        <h2>{{ profileForm.nickname || '未设置昵称' }}</h2>
-        <el-tag :type="creditScoreType" effect="dark" class="score-tag">
-          信用分：{{ profileForm.creditScore ?? userStore.creditScore }}
-        </el-tag>
-      </div>
+      <section class="panel main">
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" :class="{ on: tab === 'info' }" :aria-selected="tab === 'info'" @click="tab = 'info'">基本资料</button>
+          <button type="button" role="tab" :class="{ on: tab === 'password' }" :aria-selected="tab === 'password'" @click="tab = 'password'">修改密码</button>
+        </div>
+
+        <el-form v-if="tab === 'info'" label-position="top" class="form" @submit.prevent="saveProfile">
+          <div class="grid2">
+            <el-form-item label="昵称" required>
+              <el-input v-model.trim="form.nickname" maxlength="20" show-word-limit />
+            </el-form-item>
+            <el-form-item label="学院">
+              <el-input v-model.trim="form.college" maxlength="50" placeholder="例如：计算机学院" />
+            </el-form-item>
+          </div>
+          <div class="readonly">
+            <div><span>学号</span><strong class="num">{{ profile.studentId || '—' }}</strong></div>
+            <div><span>手机号</span><strong>{{ profile.phone || '未绑定' }}</strong></div>
+            <div><span>校园邮箱</span><strong>{{ profile.email || '未绑定' }}</strong></div>
+          </div>
+          <el-button type="primary" native-type="submit" :loading="saving">保存资料</el-button>
+        </el-form>
+
+        <el-form v-else ref="pwdRef" :model="pwd" :rules="pwdRules" label-position="top" class="form narrow" @submit.prevent="savePassword">
+          <el-form-item label="当前密码" prop="oldPassword">
+            <el-input v-model="pwd.oldPassword" type="password" show-password autocomplete="current-password" />
+          </el-form-item>
+          <el-form-item label="新密码" prop="newPassword">
+            <el-input v-model="pwd.newPassword" type="password" show-password autocomplete="new-password" />
+          </el-form-item>
+          <el-form-item label="确认新密码" prop="confirmPassword">
+            <el-input v-model="pwd.confirmPassword" type="password" show-password autocomplete="new-password" />
+          </el-form-item>
+          <p class="pwd-note">修改成功后需要用新密码重新登录。</p>
+          <el-button type="primary" native-type="submit" :loading="pwdSaving">修改密码</el-button>
+        </el-form>
+      </section>
     </div>
-
-    <el-card class="profile-card">
-      <el-tabs v-model="activeTab" class="profile-tabs">
-        <el-tab-pane label="基本信息" name="info">
-          <el-form :model="profileForm" label-width="90px" class="form-container">
-            <div class="form-section-title">账号标识</div>
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="学号">
-                  <el-input v-model="profileForm.studentId" disabled placeholder="暂无学号信息" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="当前角色">
-                  <el-input :value="roleName" disabled />
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="手机号">
-                  <el-input v-model="profileForm.phone" disabled placeholder="未绑定" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="邮箱">
-                  <el-input v-model="profileForm.email" disabled placeholder="未绑定" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-divider border-style="dashed" />
-
-            <div class="form-section-title">个性化设置</div>
-            <el-form-item label="用户昵称">
-              <el-input v-model="profileForm.nickname" placeholder="请输入新昵称" clearable />
-            </el-form-item>
-
-            <el-form-item label="头像上传">
-              <div class="avatar-upload-panel">
-                <el-upload
-                  class="avatar-file-uploader"
-                  action="/v1/files/upload"
-                  :headers="uploadHeaders"
-                  :show-file-list="false"
-                  :before-upload="beforeAvatarUpload"
-                  :on-success="handleAvatarUploadSuccess"
-                  :on-error="handleAvatarUploadError"
-                >
-                  <el-button type="primary">选择本地图片</el-button>
-                </el-upload>
-                <div class="avatar-upload-note">
-                  上传后会自动更新头像预览，并同步保存到个人资料里。
-                </div>
-              </div>
-            </el-form-item>
-
-            <el-form-item class="submit-item">
-              <el-button type="primary" size="large" class="save-btn" :loading="loading" @click="updateProfile">
-                保存资料修改
-              </el-button>
-            </el-form-item>
-          </el-form>
-        </el-tab-pane>
-
-        <el-tab-pane label="安全设置" name="security">
-          <el-form :model="passwordForm" label-width="90px" class="form-container password-form">
-            <el-alert
-              title="密码修改后您可能需要重新登录"
-              type="warning"
-              show-icon
-              :closable="false"
-              class="mb-20"
-            />
-            <el-form-item label="当前密码">
-              <el-input v-model="passwordForm.oldPassword" type="password" show-password placeholder="请输入当前密码" />
-            </el-form-item>
-            <el-form-item label="新密码">
-              <el-input v-model="passwordForm.newPassword" type="password" show-password placeholder="请输入新密码" />
-            </el-form-item>
-            <el-form-item label="确认密码">
-              <el-input v-model="passwordForm.confirmPassword" type="password" show-password placeholder="请再次输入新密码" />
-            </el-form-item>
-
-            <el-form-item class="submit-item">
-              <el-button type="danger" size="large" class="save-btn" :loading="pwdLoading" @click="updatePassword">
-                确认修改密码
-              </el-button>
-            </el-form-item>
-          </el-form>
-        </el-tab-pane>
-      </el-tabs>
-    </el-card>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { useUserStore } from '@/user/userStore'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
 import http from '@/common/http'
+import PageHeader from '@/common/ui/PageHeader.vue'
+import { useUserStore } from '@/user/userStore'
+import { assetUrl } from '@/common/assetUrl'
 
-const API_ORIGIN = 'http://localhost:8080'
-
+/**
+ * 个人资料（GET/PUT /v1/auth/profile，PUT /v1/auth/password）。
+ * 修改时后端只采纳昵称、头像、学院；头像以上传接口返回的相对路径保存（K6），
+ * 上传走统一 http 实例，错误提示与鉴权由拦截器处理（K8）。
+ */
 const userStore = useUserStore()
-const activeTab = ref('info')
-const loading = ref(false)
-const pwdLoading = ref(false)
+const router = useRouter()
 
-const profileForm = reactive({
-  studentId: '',
-  phone: '',
-  email: '',
-  nickname: '',
-  avatar: '',
-  creditScore: 100
-})
+const loading = ref(true)
+const saving = ref(false)
+const uploading = ref(false)
+const pwdSaving = ref(false)
+const tab = ref('info')
+const fileInput = ref(null)
+const pwdRef = ref(null)
 
-const passwordForm = reactive({
-  oldPassword: '',
-  newPassword: '',
-  confirmPassword: ''
-})
+const profile = ref({})
+const form = reactive({ nickname: '', college: '', avatar: '' })
+const pwd = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
 
-const uploadHeaders = computed(() => ({
-  Authorization: userStore.token ? `Bearer ${userStore.token}` : ''
-}))
+const avatarUrl = computed(() => assetUrl(form.avatar))
+const creditScore = computed(() => Number(profile.value.creditScore ?? userStore.creditScore ?? 100))
+const creditTone = computed(() => (creditScore.value < 70 ? 'low' : creditScore.value < 90 ? 'mid' : 'ok'))
+const creditNote = computed(() => (creditScore.value < 70
+  ? '低于 70 分，暂时不能发布和接单。每日零点恢复 1 分，恢复到 70 分为止。'
+  : '不低于 70 分可以发布和接单。五星评价加 1 分，一、二星扣 1 分，付款逾期扣 10 分。'))
 
-// 普通用户不再区分需求方/服务方，只区分普通用户与管理员。
-const roleName = computed(() => (userStore.isAdmin ? '管理员' : '普通用户'))
-
-const creditScoreType = computed(() => {
-  const score = profileForm.creditScore || userStore.creditScore
-  if (score >= 90) return 'success'
-  if (score >= 70) return 'warning'
-  return 'danger'
-})
-
-const avatarPreviewUrl = computed(() => normalizeAvatarUrl(profileForm.avatar) || userStore.avatar || '')
-
-function normalizeAvatarUrl(url) {
-  if (!url) return ''
-  if (/^https?:\/\//i.test(url)) return url
-  return `${API_ORIGIN}${url}`
+const pwdRules = {
+  oldPassword: [{ required: true, message: '请输入当前密码', trigger: 'blur' }],
+  newPassword: [{
+    trigger: 'blur',
+    validator: (rule, value, cb) => {
+      if (!value) cb(new Error('请输入新密码'))
+      else if (value.length < 6 || value.length > 20) cb(new Error('密码为 6–20 位'))
+      else if (!/^(?=.*[A-Za-z])(?=.*\d)/.test(value)) cb(new Error('密码需同时包含字母和数字'))
+      else cb()
+    }
+  }],
+  confirmPassword: [{ trigger: 'blur', validator: (rule, value, cb) => (value === pwd.newPassword ? cb() : cb(new Error('两次输入的新密码不一致'))) }]
 }
 
-function fillProfileForm(data) {
-  profileForm.studentId = data?.studentId || ''
-  profileForm.phone = data?.phone || ''
-  profileForm.email = data?.email || ''
-  profileForm.nickname = data?.nickname || ''
-  profileForm.avatar = normalizeAvatarUrl(data?.avatar)
-  profileForm.creditScore = data?.creditScore ?? 100
-}
-
-onMounted(async () => {
+async function load() {
   try {
-    const res = await http.get('/auth/profile')
-    if (res.data.code === 200) {
-      fillProfileForm(res.data.data)
-      userStore.syncProfile({
-        nickname: profileForm.nickname,
-        avatar: profileForm.avatar,
-        creditScore: profileForm.creditScore
-      })
-      return
-    }
-  } catch (err) {
-    // fallback to local store state
-  }
-
-  fillProfileForm({
-    nickname: userStore.nickname,
-    avatar: userStore.avatar,
-    creditScore: userStore.creditScore
-  })
-})
-
-const updateProfile = async () => {
-  if (!profileForm.nickname) {
-    ElMessage.warning('昵称不能为空')
-    return
-  }
-
-  loading.value = true
-  try {
-    const res = await http.put('/auth/profile', {
-      nickname: profileForm.nickname,
-      avatar: profileForm.avatar || null
-    })
-
-    if (res.data.code === 200) {
-      userStore.syncProfile({
-        nickname: profileForm.nickname,
-        avatar: profileForm.avatar,
-        creditScore: profileForm.creditScore
-      })
-      ElMessage.success('资料已更新')
-    } else {
-      ElMessage.error(res.data.message || '更新失败')
-    }
-  } catch (err) {
-    ElMessage.error('更新失败，请稍后重试')
+    const data = (await http.get('/auth/profile')).data.data || {}
+    profile.value = data
+    form.nickname = data.nickname || ''
+    form.college = data.college || ''
+    form.avatar = assetUrl(data.avatar)
+    userStore.syncProfile({ nickname: data.nickname, avatar: data.avatar, creditScore: data.creditScore, restricted: data.restricted })
+  } catch {
+    form.nickname = userStore.nickname
+    form.avatar = userStore.avatar || ''
   } finally {
     loading.value = false
   }
 }
 
-function handleAvatarUploadSuccess(res) {
-  if (res?.data?.url) {
-    profileForm.avatar = normalizeAvatarUrl(res.data.url)
-    userStore.syncProfile({
-      nickname: profileForm.nickname,
-      avatar: profileForm.avatar,
-      creditScore: profileForm.creditScore
-    })
-    ElMessage.success('头像上传成功')
-    return
-  }
-  ElMessage.error('头像解析失败，请重试')
-}
-
-function handleAvatarUploadError() {
-  ElMessage.error('图片上传失败')
-}
-
-function beforeAvatarUpload(file) {
-  const allowTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp']
-  const isAllowedType = allowTypes.includes(file.type)
-  const isLt2M = file.size / 1024 / 1024 < 2
-
-  if (!isAllowedType) {
-    ElMessage.error('头像图片只能是 JPG / PNG / WebP 格式')
-  }
-  if (!isLt2M) {
-    ElMessage.error('头像图片大小不能超过 2MB')
-  }
-  return isAllowedType && isLt2M
-}
-
-const updatePassword = async () => {
-  if (!passwordForm.oldPassword || !passwordForm.newPassword) {
-    ElMessage.warning('密码不能为空')
-    return
-  }
-  if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-    ElMessage.warning('两次输入的新密码不一致')
-    return
-  }
-
-  pwdLoading.value = true
+async function onFileChosen(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { ElMessage.warning('头像只能是 JPG、PNG 或 WebP 图片'); return }
+  if (file.size > 2 * 1024 * 1024) { ElMessage.warning('头像图片不能超过 2MB'); return }
+  uploading.value = true
   try {
-    const res = await http.put('/auth/password', {
-      oldPassword: passwordForm.oldPassword,
-      newPassword: passwordForm.newPassword
-    })
-    if (res.data.code === 200) {
-      ElMessage.success('密码修改成功，请重新登录')
-      userStore.logout()
-      location.reload()
-    } else {
-      ElMessage.error(res.data.message || '密码修改失败')
-    }
-  } catch (err) {
-    ElMessage.error('密码修改失败，请稍后重试')
+    const body = new FormData()
+    body.append('file', file)
+    const url = (await http.post('/files/upload', body)).data?.data?.url
+    if (!url) throw new Error('上传结果缺少地址')
+    form.avatar = assetUrl(url)
+    await http.put('/auth/profile', { nickname: form.nickname, avatar: form.avatar, college: form.college })
+    userStore.syncProfile({ avatar: form.avatar })
+    ElMessage.success('头像已更新')
+  } catch (error) {
+    if (!error.response) ElMessage.error('头像上传失败，请重试')
   } finally {
-    pwdLoading.value = false
+    uploading.value = false
   }
 }
+
+async function saveProfile() {
+  if (!form.nickname) { ElMessage.warning('昵称不能为空'); return }
+  saving.value = true
+  try {
+    // college 传空字符串表示清空（后端约定）
+    await http.put('/auth/profile', { nickname: form.nickname, avatar: form.avatar || null, college: form.college })
+    userStore.syncProfile({ nickname: form.nickname, avatar: form.avatar })
+    ElMessage.success('资料已保存')
+  } catch {
+    // 拦截器已提示（例如昵称过长）
+  } finally {
+    saving.value = false
+  }
+}
+
+async function savePassword() {
+  try { await pwdRef.value.validate() } catch { return }
+  pwdSaving.value = true
+  try {
+    await http.put('/auth/password', { oldPassword: pwd.oldPassword, newPassword: pwd.newPassword })
+    ElMessage.success('密码已修改，请用新密码登录')
+    userStore.logout()
+    router.replace('/login')
+  } catch {
+    // 拦截器已提示（例如当前密码错误）
+  } finally {
+    pwdSaving.value = false
+  }
+}
+
+onMounted(load)
 </script>
 
 <style scoped>
-.profile-page {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 20px;
-  animation: fade-in 0.3s ease;
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.profile-header-banner {
-  display: flex;
-  align-items: center;
+.layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: 24px;
-  padding: 36px 40px;
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.06));
-  border-radius: var(--radius-xl);
-  margin-bottom: 24px;
-  box-shadow: var(--shadow-sm);
+  align-items: start;
 }
-
-.avatar-uploader {
-  flex-shrink: 0;
-}
-
-.avatar-large {
-  width: 104px;
-  height: 104px;
-  border-radius: 50%;
-  background: white;
-  border: 4px solid white;
-  box-shadow: var(--shadow-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  color: var(--text-muted);
+.card { padding: 24px 22px; text-align: center; }
+.avatar-btn {
   position: relative;
-}
-
-.avatar-large img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.avatar-large svg {
-  width: 52px;
-  height: 52px;
-}
-
-.avatar-upload-trigger {
+  width: 96px;
+  height: 96px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--mint-wash);
   cursor: pointer;
 }
-
-.avatar-upload-mask {
+.avatar-btn img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-fallback { font-size: 36px; font-weight: 700; color: var(--pine); }
+.avatar-mask {
   position: absolute;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  color: white;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+  inset: auto 0 0;
+  padding: 4px 0 6px;
+  background: rgba(15, 50, 40, 0.65);
+  color: #fff;
+  font-size: var(--fs-xs);
   opacity: 0;
-  transition: opacity var(--transition-base);
-  font-size: 13px;
-  font-weight: 600;
+  transition: opacity var(--transition-fast);
 }
+.avatar-btn:hover .avatar-mask, .avatar-btn:focus-visible .avatar-mask, .avatar-btn:disabled .avatar-mask { opacity: 1; }
+.hidden-input { display: none; }
+.name { margin-top: 12px; font-size: var(--fs-xl); }
+.role { color: var(--ink-2); font-size: var(--fs-sm); }
 
-.avatar-upload-trigger:hover .avatar-upload-mask {
-  opacity: 1;
+.credit {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  text-align: left;
 }
-
-.user-title-info h2 {
-  margin: 0 0 12px;
-  font-size: 28px;
-  color: var(--text-primary);
-  font-weight: 700;
-}
-
-.score-tag {
-  font-size: 14px;
-  padding: 4px 12px;
-  border-radius: var(--radius-full);
-}
-
-.profile-card {
-  border-radius: var(--radius-xl);
-  padding: 10px;
-}
-
-.form-container {
-  padding: 20px 0;
-  max-width: 640px;
-}
-
-.password-form {
-  max-width: 520px;
-}
-
-.form-section-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 20px;
+.credit-top { display: flex; align-items: baseline; justify-content: space-between; color: var(--ink-2); font-size: var(--fs-sm); }
+.credit-value { font-size: 34px; font-weight: 600; line-height: 1; }
+.credit-value.ok { color: var(--mint-hover); }
+.credit-value.mid { color: var(--amber-ink); }
+.credit-value.low { color: var(--danger); }
+.meter {
+  position: relative;
+  height: 8px;
   margin-top: 10px;
-  border-left: 3px solid var(--primary);
-  padding-left: 10px;
+  border-radius: var(--r-pill);
+  background: #e7ecea;
+}
+.meter-fill { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-pill); }
+.meter-fill.ok { background: var(--mint); }
+.meter-fill.mid { background: var(--apricot); }
+.meter-fill.low { background: var(--danger); }
+/* 70 分门槛刻度 */
+.meter-mark {
+  position: absolute;
+  left: 70%;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  background: var(--pine);
+}
+.credit-note { margin-top: 10px; color: var(--ink-2); font-size: var(--fs-xs); line-height: 1.6; }
+.restricted {
+  margin-top: 14px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--apricot-wash);
+  color: var(--amber-ink);
+  font-size: var(--fs-xs);
+  text-align: left;
 }
 
-.avatar-upload-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.main { padding: 8px 24px 24px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+.tabs button {
+  position: relative;
+  padding: 12px 14px;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
 }
-
-.avatar-upload-note {
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.5;
+.tabs button.on { color: var(--pine); font-weight: 700; }
+.tabs button.on::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 0;
+  height: 3px;
+  background: var(--apricot);
+  border-radius: 2px 2px 0 0;
 }
-
-.submit-item {
-  margin-top: 40px;
-}
-
-.save-btn {
-  width: 150px;
-  border-radius: var(--radius-full);
-}
-
-.mb-20 {
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+.narrow { max-width: 380px; }
+.readonly {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
   margin-bottom: 20px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f7f9f8;
 }
+.readonly div { display: flex; flex-direction: column; min-width: 0; }
+.readonly span { color: var(--ink-3); font-size: var(--fs-xs); }
+.readonly strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pwd-note { margin: -4px 0 16px; color: var(--ink-3); font-size: var(--fs-xs); }
 
-:deep(.el-upload) {
-  display: inline-flex;
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; }
+  .grid2, .readonly { grid-template-columns: 1fr; }
 }
 </style>
