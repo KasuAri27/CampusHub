@@ -1,7 +1,12 @@
 package com.campushub.admin;
 
+import com.campushub.category.Category;
+import com.campushub.category.CategoryService;
 import com.campushub.common.BusinessException;
 import com.campushub.notification.NotificationService;
+import com.campushub.order.OrderRepository;
+import com.campushub.task.Task;
+import com.campushub.task.TaskService;
 import com.campushub.user.CreditService;
 import com.campushub.user.User;
 import com.campushub.user.UserRepository;
@@ -31,13 +36,16 @@ class AdminServiceDomainWriteTest {
     private final UserService userService = mock(UserService.class);
     private final CreditService creditService = mock(CreditService.class);
     private final NotificationService notifications = mock(NotificationService.class);
+    private final CategoryService categoryService = mock(CategoryService.class);
+    private final TaskService taskService = mock(TaskService.class);
+    private final OrderRepository orders = mock(OrderRepository.class);
     private AdminService service;
     private User admin;
 
     @BeforeEach
     void setUp() {
         // 构造参数顺序与 AdminService 字段声明一致，与本测试无关的依赖传 null
-        service = new AdminService(users, null, null, null, null, null, null,
+        service = new AdminService(users, null, null, categoryService, null, orders, null, taskService,
                 userService, creditService, null, null, null, notifications);
         admin = user(1, User.Role.admin);
         when(users.findById(1L)).thenReturn(Optional.of(admin));
@@ -143,5 +151,46 @@ class AdminServiceDomainWriteTest {
         assertThatThrownBy(() -> service.adjustCredit(1L, 7L, -5, "bad key!"))
                 .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getCode()).isEqualTo(400));
         verify(creditService, never()).adjust(anyLong(), anyInt(), anyString(), anyString());
+    }
+
+    @Test
+    void categoryWritesGoThroughCategoryService() {
+        Category saved = Category.builder().id(9).name("新分类").icon("x").hasReview(true).sortOrder(3).build();
+        when(categoryService.create("新分类", "x", true, 3)).thenReturn(saved);
+        when(categoryService.update(9, "改名", null, null, null)).thenReturn(saved);
+        CategoryUpsertRequest create = new CategoryUpsertRequest();
+        create.setName("新分类"); create.setIcon("x"); create.setHasReview(true); create.setSortOrder(3);
+        CategoryUpsertRequest update = new CategoryUpsertRequest();
+        update.setName("改名");
+
+        assertThat(service.createCategory(1L, create).getId()).isEqualTo(9);
+        assertThat(service.updateCategory(1L, 9, update).getName()).isEqualTo("新分类");
+        service.deleteCategory(1L, 9);
+
+        verify(categoryService).delete(9);
+    }
+
+    @Test
+    void deleteCategoryPropagatesConflict() {
+        org.mockito.Mockito.doThrow(new BusinessException(409, "该分类下仍有需求，不能删除"))
+                .when(categoryService).delete(1);
+
+        assertThatThrownBy(() -> service.deleteCategory(1L, 1))
+                .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getCode()).isEqualTo(409));
+    }
+
+    @Test
+    void rejectedTaskDtoCarriesRejectReason() {
+        Task task = com.campushub.support.BusinessFixtures.task(user(5, User.Role.user));
+        task.setStatus(Task.TaskStatus.rejected);
+        task.setRejectReason("信息不合规");
+        when(taskService.rejectByAdmin(10L, "信息不合规")).thenReturn(task);
+        // toTaskDTO 会查订单，用空列表即可
+        when(orders.findByTaskId(10L)).thenReturn(java.util.List.of());
+
+        TaskManagementDTO dto = service.rejectTask(1L, 10L, "信息不合规");
+
+        assertThat(dto.getStatus()).isEqualTo("rejected");
+        assertThat(dto.getRejectReason()).isEqualTo("信息不合规");
     }
 }

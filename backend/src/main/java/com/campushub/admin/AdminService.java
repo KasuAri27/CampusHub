@@ -2,6 +2,7 @@ package com.campushub.admin;
 
 import com.campushub.category.Category;
 import com.campushub.category.CategoryRepository;
+import com.campushub.category.CategoryService;
 import com.campushub.chat.dto.MessageDTO;
 import com.campushub.chat.entity.Conversation;
 import com.campushub.chat.entity.ConversationMember;
@@ -50,6 +51,7 @@ public class AdminService {
     private final UserRepository userRepository;
     private final TaskRepository taskRepository;
     private final CategoryRepository categoryRepository;
+    private final CategoryService categoryService;
     private final NotificationRepository notificationRepository;
     private final OrderRepository orderRepository;
     private final ReviewRepository reviewRepository;
@@ -277,49 +279,38 @@ public class AdminService {
         requireAdmin(adminUserId);
         return categoryRepository.findAll().stream()
                 .sorted((a, b) -> Integer.compare(a.getSortOrder(), b.getSortOrder()))
-                .map(c -> CategoryManagementDTO.builder()
-                        .id(c.getId()).name(c.getName()).icon(c.getIcon())
-                        .hasReview(c.getHasReview()).sortOrder(c.getSortOrder()).build())
+                .map(this::toCategoryDTO)
                 .collect(Collectors.toList());
     }
 
+    /** 新增分类：管理员鉴权后交由交易核心的 {@link CategoryService} 写入，后台不再直写 categories 表。 */
     @Transactional
     public CategoryManagementDTO createCategory(Long adminUserId, CategoryUpsertRequest req) {
         requireAdmin(adminUserId);
-        Category c = Category.builder()
-                .name(req.getName()).icon(req.getIcon())
-                .hasReview(req.getHasReview() != null && req.getHasReview())
-                .sortOrder(req.getSortOrder() != null ? req.getSortOrder() : 0)
-                .build();
-        c = categoryRepository.save(c);
-        return CategoryManagementDTO.builder()
-                .id(c.getId()).name(c.getName()).icon(c.getIcon())
-                .hasReview(c.getHasReview()).sortOrder(c.getSortOrder()).build();
+        return toCategoryDTO(categoryService.create(
+                req.getName(), req.getIcon(), req.getHasReview(), req.getSortOrder()));
     }
 
+    /** 局部更新分类，null 字段保持原值，规则同 {@link CategoryService#update}。 */
     @Transactional
     public CategoryManagementDTO updateCategory(Long adminUserId, Integer categoryId,
                                                  CategoryUpsertRequest req) {
         requireAdmin(adminUserId);
-        Category c = categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new BusinessException(404, "分类不存在"));
-        if (req.getName() != null) c.setName(req.getName());
-        if (req.getIcon() != null) c.setIcon(req.getIcon());
-        if (req.getHasReview() != null) c.setHasReview(req.getHasReview());
-        if (req.getSortOrder() != null) c.setSortOrder(req.getSortOrder());
-        c = categoryRepository.save(c);
-        return CategoryManagementDTO.builder()
-                .id(c.getId()).name(c.getName()).icon(c.getIcon())
-                .hasReview(c.getHasReview()).sortOrder(c.getSortOrder()).build();
+        return toCategoryDTO(categoryService.update(
+                categoryId, req.getName(), req.getIcon(), req.getHasReview(), req.getSortOrder()));
     }
 
+    /** 删除分类；分类仍被需求引用时由 CategoryService 返回 409 并说明原因，这里直接透传。 */
     @Transactional
     public void deleteCategory(Long adminUserId, Integer categoryId) {
         requireAdmin(adminUserId);
-        if (!categoryRepository.existsById(categoryId)) {
-            throw new BusinessException(404, "分类不存在");
-        }
-        categoryRepository.deleteById(categoryId);
+        categoryService.delete(categoryId);
+    }
+
+    private CategoryManagementDTO toCategoryDTO(Category c) {
+        return CategoryManagementDTO.builder()
+                .id(c.getId()).name(c.getName()).icon(c.getIcon())
+                .hasReview(c.getHasReview()).sortOrder(c.getSortOrder()).build();
     }
 
     // ==================== 系统通知 ====================
@@ -534,6 +525,8 @@ public class AdminService {
                 .requesterEmail(t.getRequester() != null ? t.getRequester().getEmail() : "")
                 .providerStudentId(providerSid) // 新增：接单者学号
                 .requesterComment(comment)      // 新增：发布者评价
+                // 最近一次驳回理由，仅 rejected 状态有值（模块契约 §7 / TODO §1.1）
+                .rejectReason(t.getRejectReason())
                 .build();
     }
 }

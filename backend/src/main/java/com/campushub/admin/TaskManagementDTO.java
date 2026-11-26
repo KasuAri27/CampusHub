@@ -36,4 +36,6 @@ public class TaskManagementDTO {
     private String requesterEmail;
     private String providerStudentId; // 接单者学号
     private String requesterComment;  // 发布者评价
+    /** 最近一次驳回理由（≤200字），仅 rejected 状态有值，重新提交后清空。 */
+    private String rejectReason;
 }
