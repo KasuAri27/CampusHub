@@ -2,6 +2,7 @@ package com.campushub.admin;
 
 import com.campushub.category.Category;
 import com.campushub.category.CategoryRepository;
+import com.campushub.category.CategoryService;
 import com.campushub.chat.dto.MessageDTO;
 import com.campushub.chat.entity.Conversation;
 import com.campushub.chat.entity.ConversationMember;
@@ -9,7 +10,6 @@ import com.campushub.chat.entity.Message;
 import com.campushub.chat.repository.ConversationMemberRepository;
 import com.campushub.chat.repository.ConversationRepository;
 import com.campushub.chat.repository.MessageRepository;
-import com.campushub.chat.service.ChatIntegrationService;
 import com.campushub.common.BusinessException;
 import com.campushub.common.PageResult;
 import com.campushub.notification.Notification;
@@ -17,11 +17,13 @@ import com.campushub.notification.NotificationRepository;
 import com.campushub.order.OrderRepository;
 import com.campushub.review.ReviewRepository;
 import com.campushub.task.Task;
-import com.campushub.task.Task.TaskStatus;
+import com.campushub.task.TaskService;
 import com.campushub.task.TaskRepository;
 import com.campushub.task.TeamingTask;
+import com.campushub.user.CreditService;
 import com.campushub.user.User;
 import com.campushub.user.UserRepository;
+import com.campushub.user.UserService;
 import com.campushub.order.Order;
 import com.campushub.review.Review;
 import jakarta.persistence.criteria.Predicate;
@@ -39,6 +41,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -48,10 +51,13 @@ public class AdminService {
     private final UserRepository userRepository;
     private final TaskRepository taskRepository;
     private final CategoryRepository categoryRepository;
+    private final CategoryService categoryService;
     private final NotificationRepository notificationRepository;
     private final OrderRepository orderRepository;
     private final ReviewRepository reviewRepository;
-    private final ChatIntegrationService chatIntegrationService;
+    private final TaskService taskService;
+    private final UserService userService;
+    private final CreditService creditService;
     private final ConversationRepository conversationRepository;
     private final ConversationMemberRepository conversationMemberRepository;
     private final MessageRepository messageRepository;
@@ -149,34 +155,50 @@ public class AdminService {
         return toUserDTO(u);
     }
 
+    /**
+     * 切换用户封禁状态。后台只做管理员鉴权，状态写入与悲观写锁由
+     * {@link UserService#toggleStatus} 负责，AdminService 不再直写 User.status。
+     */
     @Transactional
     public void toggleUserStatus(Long adminUserId, Long targetUserId) {
         requireAdmin(adminUserId);
-        User target = userRepository.findById(targetUserId)
-                .orElseThrow(() -> new BusinessException(404, "目标用户不存在"));
-        target.setStatus(target.getStatus() != null && target.getStatus() == 1 ? 0 : 1);
-        userRepository.save(target);
+        userService.toggleStatus(targetUserId);
     }
 
     /**
-     * 管理员调整信用分：受[0, 100]区间限制，达到上限禁止上调；
+     * 管理员调整信用分。分数写入、行锁、[0,100] 钳制与 CreditEvent 审计流水统一由
+     * {@link CreditService#adjust} 负责，后台不再直接 setCreditScore。
+     * 在 100 分时继续上调不再报 400，而是钳制后记一条流水（2026-11 用户确认的规则）。
+     * 幂等键：eventKey = {@code admin:{targetUserId}:{operationId}}（模块契约 §3.2）。
+     * 客户端带 operationId 时，同一编号重复提交只扣一次且不重复通知；同编号但参数不一致由
+     * CreditService 抛 409。未带时服务端生成 UUID，每次调用都是独立流水（无幂等保护，与旧行为一致）。
      * 降至70分以下时触发权限限制警告，通知用户发单受限。
+     * 事务内先锁用户（CreditService 内 findLockedById）再写流水，与其他信用分写入口的锁顺序一致。
+     *
+     * @param operationId 可选的客户端操作编号，仅允许字母、数字、下划线、连字符，长度 ≤36
      */
     @Transactional
-    public void adjustCredit(Long adminUserId, Long targetUserId, int delta) {
-        requireAdmin(adminUserId);
-        User admin = userRepository.findById(adminUserId).get();
-        User target = userRepository.findById(targetUserId)
-                .orElseThrow(() -> new BusinessException(404, "目标用户不存在"));
-        int current = target.getCreditScore() != null ? target.getCreditScore() : 0;
-        if (delta > 0 && current >= 100) {
-            throw new BusinessException(400, "信用分已达上限（100分），无法继续增加");
+    public void adjustCredit(Long adminUserId, Long targetUserId, int delta, String operationId) {
+        User admin = requireAdmin(adminUserId);
+        String opId = (operationId == null || operationId.isBlank()) ? UUID.randomUUID().toString() : operationId;
+        // 校验放在写入之前；eventKey 列为 VARCHAR(100)，编号上限 36 保证拼接后不超长
+        if (!opId.matches("[A-Za-z0-9_-]{1,36}")) {
+            throw new BusinessException(400, "operationId 只能包含字母、数字、下划线和连字符，且不超过36个字符");
         }
-        int newScore = Math.min(100, Math.max(0, current + delta));
-        target.setCreditScore(newScore);
-        userRepository.save(target);
-
+        // 保留原有的"目标用户不存在"文案；仅作存在性校验，写入仍由 CreditService 加锁完成
+        userRepository.findById(targetUserId)
+                .orElseThrow(() -> new BusinessException(404, "目标用户不存在"));
         String adminName = admin.getName();
+        String eventKey = "admin:" + targetUserId + ":" + opId;
+        boolean applied = creditService.adjust(targetUserId, delta, eventKey,
+                "管理员 " + adminName + " 调整信用分 " + (delta >= 0 ? "+" : "") + delta);
+        // 重复提交：分数与通知在首次调用时已处理，直接按成功返回
+        if (!applied) {
+            return;
+        }
+        // 同一事务内读回已更新实体，取调整后的分数用于通知文案
+        int newScore = userRepository.findById(targetUserId).map(User::getCreditScore).orElse(0);
+
         String action = delta >= 0 ? "增加了 " + Math.abs(delta) + " 分" : "扣除了 " + Math.abs(delta) + " 分";
         String title = "信用分变动通知";
         String content = "管理员 " + adminName + " " + action + "，当前信用分：" + newScore;
@@ -227,80 +249,27 @@ public class AdminService {
     }
 
     /**
-     * 物理删除需求前，强制校验是否有非零金额订单或已产生付款凭证的订单；
-     * 存在资金流转的订单必须保留财务与争议审计记录，不可物理擦除。
+     * 管理员物理删除需求。后台只负责确认操作人是管理员，需求、订单、评价的删除规则与加锁顺序
+     * 由 {@link TaskService#deleteByAdmin} 统一裁决，AdminService 不再直接写这三张表。
      */
     @Transactional
     public void deleteTask(Long adminUserId, Long taskId) {
         requireAdmin(adminUserId);
-        if (!taskRepository.existsById(taskId)) {
-            throw new BusinessException(404, "需求不存在");
-        }
-        if (orderRepository.findByTaskId(taskId).stream().anyMatch(o -> o.getAmountDue() != null))
-            throw new BusinessException(409, "任务已有新业务订单，须保留财务和争议审计记录，不能物理删除");
-        // 管理员删除需求时级联删除评价 → 订单 → 需求
-        orderRepository.findByTaskId(taskId).forEach(o -> {
-            reviewRepository.deleteByOrder_Id(o.getId());
-            orderRepository.delete(o);
-        });
-        taskRepository.deleteById(taskId);
+        taskService.deleteByAdmin(taskId);
     }
 
-    /** 审核通过需求；若为组队任务（TeamingTask），自动联动聊天模块创建专属协作群。 */
+    /** 审核通过需求；状态迁移、组队群创建与通知均在 TaskService 同一事务内完成，这里只做鉴权与展示组装。 */
     @Transactional
     public TaskManagementDTO approveTask(Long adminUserId, Long taskId) {
         requireAdmin(adminUserId);
-        Task task = taskRepository.findById(taskId)
-                .orElseThrow(() -> new BusinessException(404, "需求不存在"));
-        if (task.getStatus() != TaskStatus.pending_review) {
-            throw new BusinessException(400, "仅待审核状态的需求可以审核通过");
-        }
-        task.setStatus(TaskStatus.published);
-        task.setPublishedAt(LocalDateTime.now());
-        taskRepository.save(task);
-
-        if (task instanceof TeamingTask) {
-            chatIntegrationService.createTeamGroup(task);
-        }
-
-        notifyRequester(task, "approved");
-
-        return toTaskDTO(task);
+        return toTaskDTO(taskService.approveByAdmin(taskId));
     }
 
+    /** 驳回待审需求；终态迁移与驳回通知由 TaskService 负责。 */
     @Transactional
     public TaskManagementDTO rejectTask(Long adminUserId, Long taskId, String reason) {
         requireAdmin(adminUserId);
-        Task task = taskRepository.findById(taskId)
-                .orElseThrow(() -> new BusinessException(404, "需求不存在"));
-        if (task.getStatus() != TaskStatus.pending_review) {
-            throw new BusinessException(400, "仅待审核状态的需求可以驳回");
-        }
-        task.setStatus(TaskStatus.cancelled);
-        taskRepository.save(task);
-
-        notifyRequester(task, "rejected", reason);
-
-        return toTaskDTO(task);
-    }
-
-    private void notifyRequester(Task task, String action, String reason) {
-        String title = "需求审核结果";
-        String verb = "approved".equals(action) ? "已通过审核" : "已被驳回";
-        String content = "你的需求「" + task.getTitle() + "」" + verb + "。";
-        if (reason != null && !reason.isBlank()) {
-            content += "\n驳回理由：" + reason;
-        }
-        Notification n = new Notification();
-        n.setReceiverId(task.getRequester().getId());
-        n.setTitle(title);
-        n.setContent(content);
-        n.setType("TASK_REVIEW_RESULT");
-        notificationService.createNotification(n.getReceiverId(), n.getTitle(), n.getContent(), n.getType());
-    }
-
-    private void notifyRequester(Task task, String action) {
-        notifyRequester(task, action, null);
+        return toTaskDTO(taskService.rejectByAdmin(taskId, reason));
     }
 
     // ==================== 分类管理 ====================
@@ -310,49 +279,38 @@ public class AdminService {
         requireAdmin(adminUserId);
         return categoryRepository.findAll().stream()
                 .sorted((a, b) -> Integer.compare(a.getSortOrder(), b.getSortOrder()))
-                .map(c -> CategoryManagementDTO.builder()
-                        .id(c.getId()).name(c.getName()).icon(c.getIcon())
-                        .hasReview(c.getHasReview()).sortOrder(c.getSortOrder()).build())
+                .map(this::toCategoryDTO)
                 .collect(Collectors.toList());
     }
 
+    /** 新增分类：管理员鉴权后交由交易核心的 {@link CategoryService} 写入，后台不再直写 categories 表。 */
     @Transactional
     public CategoryManagementDTO createCategory(Long adminUserId, CategoryUpsertRequest req) {
         requireAdmin(adminUserId);
-        Category c = Category.builder()
-                .name(req.getName()).icon(req.getIcon())
-                .hasReview(req.getHasReview() != null && req.getHasReview())
-                .sortOrder(req.getSortOrder() != null ? req.getSortOrder() : 0)
-                .build();
-        c = categoryRepository.save(c);
-        return CategoryManagementDTO.builder()
-                .id(c.getId()).name(c.getName()).icon(c.getIcon())
-                .hasReview(c.getHasReview()).sortOrder(c.getSortOrder()).build();
+        return toCategoryDTO(categoryService.create(
+                req.getName(), req.getIcon(), req.getHasReview(), req.getSortOrder()));
     }
 
+    /** 局部更新分类，null 字段保持原值，规则同 {@link CategoryService#update}。 */
     @Transactional
     public CategoryManagementDTO updateCategory(Long adminUserId, Integer categoryId,
                                                  CategoryUpsertRequest req) {
         requireAdmin(adminUserId);
-        Category c = categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new BusinessException(404, "分类不存在"));
-        if (req.getName() != null) c.setName(req.getName());
-        if (req.getIcon() != null) c.setIcon(req.getIcon());
-        if (req.getHasReview() != null) c.setHasReview(req.getHasReview());
-        if (req.getSortOrder() != null) c.setSortOrder(req.getSortOrder());
-        c = categoryRepository.save(c);
-        return CategoryManagementDTO.builder()
-                .id(c.getId()).name(c.getName()).icon(c.getIcon())
-                .hasReview(c.getHasReview()).sortOrder(c.getSortOrder()).build();
+        return toCategoryDTO(categoryService.update(
+                categoryId, req.getName(), req.getIcon(), req.getHasReview(), req.getSortOrder()));
     }
 
+    /** 删除分类；分类仍被需求引用时由 CategoryService 返回 409 并说明原因，这里直接透传。 */
     @Transactional
     public void deleteCategory(Long adminUserId, Integer categoryId) {
         requireAdmin(adminUserId);
-        if (!categoryRepository.existsById(categoryId)) {
-            throw new BusinessException(404, "分类不存在");
-        }
-        categoryRepository.deleteById(categoryId);
+        categoryService.delete(categoryId);
+    }
+
+    private CategoryManagementDTO toCategoryDTO(Category c) {
+        return CategoryManagementDTO.builder()
+                .id(c.getId()).name(c.getName()).icon(c.getIcon())
+                .hasReview(c.getHasReview()).sortOrder(c.getSortOrder()).build();
     }
 
     // ==================== 系统通知 ====================
@@ -567,6 +525,8 @@ public class AdminService {
                 .requesterEmail(t.getRequester() != null ? t.getRequester().getEmail() : "")
                 .providerStudentId(providerSid) // 新增：接单者学号
                 .requesterComment(comment)      // 新增：发布者评价
+                // 最近一次驳回理由，仅 rejected 状态有值（模块契约 §7 / TODO §1.1）
+                .rejectReason(t.getRejectReason())
                 .build();
     }
 }

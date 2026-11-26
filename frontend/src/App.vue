@@ -1,131 +1,143 @@
 <template>
-  <div id="app-container" :class="{ 'dark': isDark }">
-    <header class="navbar">
-      <div class="navbar-inner">
-        <router-link to="/" class="logo">
-          <div class="logo-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-              <path d="M2 17l10 5 10-5"/>
-              <path d="M2 12l10 5 10-5"/>
-            </svg>
-          </div>
-          <span class="logo-text">CampusHub</span>
+  <div class="app-shell">
+    <a class="skip-link" href="#main">跳到主要内容</a>
+
+    <header v-if="!bare" class="topbar">
+      <div class="topbar-inner">
+        <router-link to="/" class="app-brand" aria-label="CampusHub 首页">
+          <span class="app-brand-plate" aria-hidden="true">互</span>
+          <span class="app-brand-word">CampusHub</span>
+          <span class="app-brand-sub">校园互助</span>
         </router-link>
 
-        <nav class="nav-links" v-if="userStore.isLoggedIn">
-          <router-link to="/" class="nav-item" active-class="active">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="7" height="7" rx="1"/>
-              <rect x="14" y="3" width="7" height="7" rx="1"/>
-              <rect x="14" y="14" width="7" height="7" rx="1"/>
-              <rect x="3" y="14" width="7" height="7" rx="1"/>
-            </svg>
-            需求广场
-          </router-link>
-
-          <!-- 角色已合并：普通用户都能发布需求，管理员只做审核不发布 -->
-          <router-link v-if="userStore.isUser && !userStore.restricted" to="/tasks/publish" class="nav-item" active-class="active">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="16"/>
-              <line x1="8" y1="12" x2="16" y2="12"/>
-            </svg>
-            发布需求
-          </router-link>
-
-          <router-link v-if="!userStore.isAdmin && !userStore.restricted" to="/my-tasks" class="nav-item" active-class="active">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
-              <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
-              <path d="M9 14l2 2 4-4"/>
-            </svg>
-            我的需求
-          </router-link>
-
-          <router-link v-if="!userStore.restricted" to="/chat" class="nav-item" active-class="active">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-            </svg>
-            消息
-            <span v-if="chatUnreadCount" class="nav-badge">{{ chatUnreadCount > 99 ? '99+' : chatUnreadCount }}</span>
-          </router-link>
-
-          <router-link v-if="userStore.isAdmin && !userStore.restricted" to="/admin" class="nav-item" active-class="active">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-            </svg>
-            后台管理
+        <nav class="app-nav" aria-label="主导航">
+          <router-link
+            v-for="item in navItems"
+            :key="item.to"
+            :to="item.to"
+            class="app-nav-link"
+            :class="{ active: isActive(item) }"
+          >
+            {{ item.label }}
+            <span v-if="item.badge" class="app-nav-badge num">{{ item.badge }}</span>
           </router-link>
         </nav>
 
-        <div class="nav-actions">
-          <span v-if="userStore.isLoggedIn && userStore.isAdmin" class="admin-badge">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
-            管理员
-          </span>
+        <div class="topbar-right">
+          <template v-if="userStore.isLoggedIn">
+            <span
+              v-if="userStore.isUser"
+              class="credit-chip"
+              :class="creditTone"
+              :title="creditHint"
+            >
+              信用 <strong class="num">{{ userStore.creditScore }}</strong>
+            </span>
+            <span v-if="userStore.isAdmin" class="role-chip">管理员</span>
 
-          <div v-if="userStore.isLoggedIn" class="user-profile-entry" @click="goToProfile">
-            <div class="avatar-circle">
-              <img v-if="userStore.avatar" :src="userStore.avatar" alt="avatar" />
-              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                <circle cx="12" cy="7" r="4"/>
-              </svg>
-            </div>
-            <span class="username-text">{{ userStore.nickname || '用户' }}</span>
-          </div>
-
-          <button v-if="userStore.isLoggedIn" class="logout-icon-btn" @click="handleLogout" title="退出登录">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-              <polyline points="16 17 21 12 16 7"/>
-              <line x1="21" y1="12" x2="9" y2="12"/>
-            </svg>
-          </button>
+            <el-dropdown trigger="click" placement="bottom-end" @command="onCommand">
+              <button class="account-btn" type="button" aria-label="账户菜单">
+                <span class="app-avatar">
+                  <img v-if="userStore.avatar" :src="userStore.avatar" alt="" />
+                  <span v-else>{{ initial }}</span>
+                </span>
+                <span class="account-name">{{ userStore.nickname || '用户' }}</span>
+                <svg class="app-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <!-- 窄屏时主导航收进账户菜单 -->
+                  <el-dropdown-item
+                    v-for="item in navItems"
+                    :key="`m-${item.to}`"
+                    :command="item.to"
+                    class="menu-nav-item"
+                  >{{ item.label }}<span v-if="item.badge">（{{ item.badge }}）</span></el-dropdown-item>
+                  <el-dropdown-item command="/profile" class="profile-item">个人资料</el-dropdown-item>
+                  <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </template>
+          <router-link v-else :to="{ path: '/login', query: { redirect: route.fullPath } }" class="login-btn">登录 / 注册</router-link>
         </div>
       </div>
     </header>
 
-    <main class="main-content">
+    <div v-if="!bare && userStore.isLoggedIn && userStore.restricted" class="restricted-bar" role="status">
+      账号受限：你仍可以处理欠款、付款和申诉，暂时不能发布或接取新需求。
+      <router-link to="/my-orders">查看我的订单</router-link>
+    </div>
+
+    <main id="main" :class="bare ? 'app-main-bare' : 'app-main'">
       <router-view v-slot="{ Component }">
-        <transition name="page-fade" mode="out-in">
+        <transition name="page" mode="out-in">
           <component :is="Component" />
         </transition>
       </router-view>
     </main>
-
-    <div class="bg-decoration">
-      <div class="blob blob-1"></div>
-      <div class="blob blob-2"></div>
-      <div class="blob blob-3"></div>
-    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/user/userStore'
 import { useChatStore } from '@/chat/chatStore'
 
+const route = useRoute()
 const router = useRouter()
-const chatStore = useChatStore()
-const chatUnreadCount = computed(() => chatStore.unreadTotal)
 const userStore = useUserStore()
-const isDark = ref(false)
+const chatStore = useChatStore()
 
-// ======== 用户操作逻辑 ========
-const goToProfile = () => {
-  router.push('/profile')
+const bare = computed(() => route.meta.bare === true)
+const initial = computed(() => (userStore.nickname || '用').charAt(0))
+
+/**
+ * 主导航按身份裁剪：
+ * 普通用户可发布、接单并查看订单；管理员只审核不发布，因此不显示发布、我的需求与订单入口；
+ * 受限账号只保留订单入口（路由守卫同样会拦截其余页面）。
+ */
+const navItems = computed(() => {
+  const unread = chatStore.unreadTotal > 99 ? '99+' : chatStore.unreadTotal || ''
+  if (!userStore.isLoggedIn) return [{ to: '/', label: '需求广场', exact: true }]
+  if (userStore.restricted) return [{ to: '/my-orders', label: '我的订单' }]
+  const items = [{ to: '/', label: '需求广场', exact: true }]
+  if (userStore.isUser) {
+    items.push(
+      { to: '/tasks/publish', label: '发布需求' },
+      { to: '/my-tasks', label: '我的需求' },
+      { to: '/my-orders', label: '我的订单' }
+    )
+  }
+  items.push({ to: '/chat', label: '消息', badge: unread })
+  if (userStore.isAdmin) items.push({ to: '/admin', label: '管理后台' })
+  return items
+})
+
+function isActive(item) {
+  if (item.exact) return route.path === '/' || (route.path.startsWith('/tasks/') && route.path !== '/tasks/publish')
+  return route.path === item.to || route.path.startsWith(`${item.to}/`)
 }
 
-const handleLogout = () => {
-  userStore.logout()
-  router.push('/login')
+/** 信用分 70 是发布与接单门槛（后端 TaskService/OrderService 同样校验）。 */
+const creditTone = computed(() => {
+  const s = userStore.creditScore
+  if (s < 70) return 'is-danger'
+  if (s < 90) return 'is-warn'
+  return 'is-ok'
+})
+const creditHint = computed(() => userStore.creditScore < 70
+  ? '信用分低于 70，暂时不能发布或接单；每日零点逐步恢复'
+  : '信用分不低于 70 才能发布和接单')
+
+function onCommand(cmd) {
+  if (cmd === 'logout') {
+    userStore.logout()
+    router.push('/login')
+    return
+  }
+  router.push(cmd)
 }
 
 async function syncChatState() {
@@ -137,426 +149,226 @@ async function syncChatState() {
   chatStore.connectWebSocket()
 }
 
-// ======== 生命周期 ========
-onMounted(() => {
-  syncChatState()
-})
-
-watch(() => userStore.isLoggedIn, (loggedIn) => {
-  if (loggedIn) {
-    syncChatState()
-  } else {
-    chatStore.disconnect()
-  }
+onMounted(syncChatState)
+watch(() => userStore.isLoggedIn, loggedIn => {
+  if (loggedIn) syncChatState()
+  else chatStore.disconnect()
 })
 </script>
 
 <style>
-/* ===== CSS Variables - 设计系统 ===== */
-:root {
-  --primary: #10b981;
-  --primary-light: #34d399;
-  --primary-dark: #059669;
-  --accent: #f59e0b;
-  --accent-light: #fbbf24;
-  --accent-dark: #d97706;
-  --bg-primary: #f8fafc;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #f1f5f9;
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --error: #ef4444;
-  --info: #3b82f6;
-  --border-color: #e2e8f0;
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-  --radius-sm: 3px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
-  --radius-full: 9999px;
-  --transition-fast: 150ms ease;
-  --transition-base: 250ms ease;
-  --transition-slow: 350ms ease;
-}
+.app-shell { min-height: 100vh; }
 
-*, *::before, *::after {
-  box-sizing: border-box;
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -40px;
+  z-index: 2000;
+  padding: 8px 12px;
+  background: var(--pine);
+  color: #fff;
+  border-radius: var(--r-sign);
 }
+.skip-link:focus { top: 8px; }
 
-body {
-  margin: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', sans-serif;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-#app-container {
-  min-height: 100vh;
-  position: relative;
-  overflow-x: hidden;
-}
-
-.navbar {
-  position: fixed;
+/* —— 顶栏 —— */
+.topbar {
+  position: sticky;
   top: 0;
-  left: 0;
-  right: 0;
   z-index: 1000;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
 }
-
-.navbar-inner {
-  max-width: 1400px;
+.topbar-inner {
+  max-width: calc(var(--content-w) + 48px);
+  height: var(--header-h);
   margin: 0 auto;
   padding: 0 24px;
-  height: 64px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 32px;
+  align-items: stretch;
+  gap: 28px;
 }
 
-.logo {
+.app-brand {
   display: flex;
   align-items: center;
   gap: 10px;
   text-decoration: none;
-  color: var(--text-primary);
+  color: var(--ink);
+  flex-shrink: 0;
+}
+.app-brand-plate {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  background: var(--pine);
+  color: #fff;
+  border-radius: var(--r-sign);
   font-weight: 700;
-  font-size: 20px;
-  transition: var(--transition-base);
+  font-size: 17px;
+  box-shadow: inset 0 -3px 0 var(--apricot);
+}
+.app-brand-word {
+  font-family: var(--font-num);
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: 0.01em;
+}
+.app-brand-sub {
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
 }
 
-.logo:hover {
-  transform: scale(1.02);
+.app-nav {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
 }
-
-.logo-icon {
-  width: 36px;
-  height: 36px;
-  background: linear-gradient(135deg, var(--primary), var(--primary-light));
-  border-radius: var(--radius-md);
+.app-nav-link {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: white;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  gap: 6px;
+  padding: 0 12px;
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.app-nav-link:hover { color: var(--ink); }
+/* 选中项：松绿文字 + 底部杏黄标示条，借用导视牌的指示色 */
+.app-nav-link.active { color: var(--pine); font-weight: 600; }
+.app-nav-link.active::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 3px;
+  background: var(--apricot);
+  border-radius: 2px 2px 0 0;
+}
+.app-nav-badge {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
 }
 
-.logo-icon svg {
-  width: 20px;
-  height: 20px;
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.credit-chip {
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  cursor: default;
+}
+.credit-chip strong { font-size: 15px; margin-left: 2px; }
+.credit-chip.is-ok { background: var(--mint-wash); color: var(--mint-hover); }
+.credit-chip.is-warn { background: var(--apricot-wash); color: var(--amber-ink); }
+.credit-chip.is-danger { background: var(--danger-wash); color: var(--danger); }
+.role-chip {
+  padding: 2px 10px;
+  border-radius: var(--r-sign);
+  background: var(--pine);
+  color: #fff;
+  font-size: var(--fs-xs);
+  font-weight: 600;
 }
 
-.logo-text {
-  background: linear-gradient(135deg, var(--primary-dark), var(--primary));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.nav-links {
+.account-btn {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
-  justify-content: center;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-radius: var(--radius-full);
-  text-decoration: none;
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 500;
-  transition: var(--transition-base);
-  position: relative;
-}
-
-.nav-item svg {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-}
-
-.nav-item:hover {
-  color: var(--primary);
-  background: rgba(16, 185, 129, 0.08);
-}
-
-.nav-item.active {
-  color: var(--primary);
-  background: rgba(16, 185, 129, 0.12);
-}
-
-.nav-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.admin-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-light));
-  color: white;
-  font-size: 12px;
-  font-weight: 600;
-  border-radius: var(--radius-full);
-  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
-}
-
-.admin-badge svg {
-  width: 14px;
-  height: 14px;
-}
-
-.nav-badge {
-  background: var(--error);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: var(--radius-full);
-  min-width: 18px;
-  text-align: center;
-  position: absolute;
-  top: 0;
-  right: -4px;
-}
-
-.user-profile-entry {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 12px 4px 4px;
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: var(--transition-base);
-  background: transparent;
-}
-
-.user-profile-entry:hover {
-  background: rgba(16, 185, 129, 0.08);
-}
-
-.avatar-circle {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--bg-tertiary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-  color: var(--text-muted);
-}
-
-.avatar-circle img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.avatar-circle svg {
-  width: 20px;
-  height: 20px;
-}
-
-.username-text {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.logout-icon-btn {
+  padding: 4px 8px 4px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
   background: none;
-  border: none;
-  color: var(--text-muted);
+  font: inherit;
+  color: var(--ink);
   cursor: pointer;
-  padding: 6px;
+}
+.account-btn:hover { border-color: var(--line); }
+.app-avatar {
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  display: flex;
-  align-items: center;
-  transition: var(--transition-fast);
-}
-
-.logout-icon-btn:hover {
-  color: var(--error);
-  background: rgba(239, 68, 68, 0.1);
-}
-
-.logout-icon-btn svg {
-  width: 18px;
-  height: 18px;
-}
-
-.main-content {
-  padding-top: 88px;
-  padding-bottom: 40px;
-  min-height: 100vh;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding-left: 24px;
-  padding-right: 24px;
-}
-
-.page-fade-enter-active,
-.page-fade-leave-active {
-  transition: opacity 0.25s ease, transform 0.25s ease;
-}
-
-.page-fade-enter-from {
-  opacity: 0;
-  transform: translateY(10px);
-}
-
-.page-fade-leave-to {
-  opacity: 0;
-  transform: translateY(-10px);
-}
-
-.bg-decoration {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
-  z-index: -1;
   overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--mint-wash);
+  color: var(--pine);
+  font-weight: 600;
+  font-size: var(--fs-sm);
 }
-
-.blob {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.5;
-  animation: blob-float 20s ease-in-out infinite;
+.app-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.account-name {
+  max-width: 8em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-md);
+  font-weight: 500;
 }
+.app-caret { width: 14px; height: 14px; color: var(--ink-3); }
 
-.blob-1 {
-  width: 600px;
-  height: 600px;
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(52, 211, 153, 0.1));
-  top: -200px;
-  right: -200px;
-  animation-delay: 0s;
+.login-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: var(--mint);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 500;
 }
+.login-btn:hover { background: var(--mint-hover); }
 
-.blob-2 {
-  width: 500px;
-  height: 500px;
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(251, 191, 36, 0.08));
-  bottom: -150px;
-  left: -150px;
-  animation-delay: -5s;
+/* 宽屏时下拉菜单里的导航项隐藏，窄屏时显示 */
+.menu-nav-item { display: none !important; }
+
+.restricted-bar {
+  padding: 10px 24px;
+  background: var(--apricot-wash);
+  border-bottom: 1px solid #f1dfb4;
+  color: var(--amber-ink);
+  font-size: var(--fs-sm);
+  text-align: center;
 }
+.restricted-bar a { margin-left: 8px; color: var(--amber-ink); font-weight: 600; }
 
-.blob-3 {
-  width: 400px;
-  height: 400px;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(147, 197, 253, 0.05));
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  animation-delay: -10s;
+.app-main {
+  max-width: calc(var(--content-w) + 48px);
+  margin: 0 auto;
+  padding: 28px 24px 64px;
 }
+.app-main-bare { min-height: 100vh; }
 
-@keyframes blob-float {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  25% { transform: translate(30px, -30px) scale(1.05); }
-  50% { transform: translate(-20px, 20px) scale(0.95); }
-  75% { transform: translate(20px, 40px) scale(1.02); }
+/* 只有页面切换这一处过渡，且只做透明度 */
+.page-enter-active, .page-leave-active { transition: opacity 140ms ease; }
+.page-enter-from, .page-leave-to { opacity: 0; }
+
+@media (max-width: 960px) {
+  .app-nav { display: none; }
+  .app-brand-sub { display: none; }
+  .topbar-inner { justify-content: space-between; padding: 0 16px; }
+  .menu-nav-item { display: flex !important; }
+  .profile-item { border-top: 1px solid var(--line); margin-top: 6px; }
+  .app-main { padding: 20px 16px 48px; }
 }
-
-.el-card {
-  border: none !important;
-  border-radius: var(--radius-lg) !important;
-  box-shadow: var(--shadow-md) !important;
-  transition: var(--transition-base) !important;
-}
-
-.el-card:hover {
-  box-shadow: var(--shadow-lg) !important;
-}
-
-.el-button--primary {
-  background: linear-gradient(135deg, var(--primary), var(--primary-light)) !important;
-  border: none !important;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25) !important;
-}
-
-.el-button--primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.35) !important;
-}
-
-.el-input__wrapper {
-  border-radius: var(--radius-md) !important;
-  box-shadow: none !important;
-  border: 1px solid var(--border-color) !important;
-  transition: var(--transition-base) !important;
-}
-
-.el-input__wrapper:hover,
-.el-input__wrapper:focus-within {
-  border-color: var(--primary) !important;
-}
-
-.el-select__wrapper {
-  border-radius: var(--radius-md) !important;
-}
-
-.el-tag {
-  border-radius: var(--radius-full) !important;
-  border: none !important;
-  font-weight: 500 !important;
-}
-
-.el-tag--primary {
-  background: rgba(16, 185, 129, 0.1) !important;
-  color: var(--primary-dark) !important;
-}
-
-.el-tag--warning {
-  background: rgba(245, 158, 11, 0.1) !important;
-  color: var(--accent-dark) !important;
-}
-
-.el-tag--success {
-  background: rgba(34, 197, 94, 0.1) !important;
-  color: #15803d !important;
-}
-
-.el-tag--info {
-  background: rgba(148, 163, 184, 0.15) !important;
-  color: var(--text-secondary) !important;
-}
-
-@media (max-width: 768px) {
-  .navbar-inner { padding: 0 16px; }
-  .nav-links { display: none; }
-  .logo-text { display: none; }
-  .main-content { padding-left: 16px; padding-right: 16px; }
+@media (max-width: 480px) {
+  .account-name, .credit-chip { display: none; }
 }
 </style>

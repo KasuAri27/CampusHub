@@ -1,20 +1,7 @@
 <!-- 管理后台会话监管视图：展示团队群聊与订单私聊，支持实时审计会话成员及原消息（包含已撤回内容） -->
 <template>
   <div class="conv-page">
-    <!-- 顶部导航 -->
-    <div class="page-header">
-      <button class="back-btn" @click="$router.back()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M19 12H5M12 19l-7-7 7-7"/>
-        </svg>
-        返回
-      </button>
-      <div class="header-info">
-        <h1 class="page-title">会话管理</h1>
-        <p class="page-subtitle">查看平台所有群聊和私聊会话</p>
-      </div>
-    </div>
-
+    <PageHeader title="会话监管" description="浏览组队群聊与订单私聊的成员和消息记录（含已撤回内容），用于核查违规交流与争议。" />
     <!-- 会话列表视图 -->
     <template v-if="!viewingConv">
       <!-- 筛选项 -->
@@ -164,7 +151,7 @@
                   <template v-if="isImageMsg(msg.content, msg.msgType)">
                     <el-image
                         style="max-width: 200px; border-radius: 6px; margin-top: 4px; vertical-align: top;"
-                        :src="msg.content"
+                        :src="assetUrl(msg.content)"
                         :preview-src-list="[msg.content]"
                         fit="cover"
                         hide-on-click-modal
@@ -208,6 +195,8 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import adminApi from '@/admin/adminApi'
+import PageHeader from '@/common/ui/PageHeader.vue'
+import { assetUrl } from '@/common/assetUrl'
 
 const tabs = [
   { label: '全部', value: '' },
@@ -319,59 +308,11 @@ function formatMessageContent(content, msgType, isRecalled) {
 </script>
 
 <style scoped>
-.conv-page {
-  animation: fade-in 0.4s ease;
-}
+.conv-page { min-width: 0; }
 
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(16px); }
   to { opacity: 1; transform: translateY(0); }
-}
-
-/* ==================== 页面头部 ==================== */
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 28px;
-}
-
-.back-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-base);
-  white-space: nowrap;
-}
-
-.back-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
-.back-btn svg { width: 16px; height: 16px; }
-
-.header-info { flex: 1; }
-
-.page-title {
-  margin: 0 0 4px;
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.page-subtitle {
-  margin: 0;
-  font-size: 14px;
-  color: var(--text-secondary);
 }
 
 /* ==================== 筛选 ==================== */

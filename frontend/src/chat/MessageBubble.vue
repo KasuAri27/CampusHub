@@ -20,8 +20,8 @@
 
           <el-image
               v-else-if="message.msgType === 'IMAGE'"
-              :src="normalizeFileUrl(message.content)"
-              :preview-src-list="[normalizeFileUrl(message.content)]"
+              :src="assetUrl(message.content)"
+              :preview-src-list="[assetUrl(message.content)]"
               fit="cover"
               class="chat-image"
               preview-teleported
@@ -37,7 +37,7 @@
 
           <span v-else>{{ message.content }}</span>
         </div>
-        <div class="bubble-time">{{ formatTime(message.createdAt) }}</div>
+        <div class="bubble-time">{{ formatClock(message.createdAt) }}</div>
       </template>
     </div>
 
@@ -55,6 +55,8 @@
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { ElImage, ElMessage } from 'element-plus'
 import { useUserStore } from '@/user/userStore'
+import { assetUrl } from '@/common/assetUrl'
+import { businessTime, formatClock } from '@/common/format'
 
 const props = defineProps({ message: Object })
 const emit = defineEmits(['recall'])
@@ -81,7 +83,8 @@ function onRightClick(e) {
 
 function handleRecall() {
   // 2. 在用户真正点击“撤回消息”按钮时，才进行时间校验
-  const msgTime = new Date(props.message.createdAt).getTime()
+  // 业务时间按上海时区解析，避免浏览器所在时区导致判断偏差
+  const msgTime = businessTime(props.message.createdAt)
   const nowTime = Date.now()
   if (nowTime - msgTime > 2 * 60 * 1000) {
     ElMessage.warning('只能撤回2分钟内的消息')
@@ -110,18 +113,7 @@ onBeforeUnmount(() => {
 })
 // -----------------------
 
-const API_ORIGIN = 'http://localhost:8080'
-function normalizeFileUrl(url) {
-  if (!url) return ''
-  if (/^https?:\/\//i.test(url)) return url
-  return `${API_ORIGIN}${url}`
-}
 
-function formatTime(t) {
-  if (!t) return ''
-  const d = new Date(t)
-  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
-}
 </script>
 
 <style scoped>

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { assetUrl } from '@/common/assetUrl'
 
 /**
  * 用户会话与权限状态管理 Store。
@@ -7,8 +8,6 @@ import { ref, computed } from 'vue'
  * 普通用户不再区分需求方/服务方：同一账号既能发布也能接单，无需切换身份。
  */
 export const useUserStore = defineStore('user', () => {
-  const API_ORIGIN = 'http://localhost:8080'
-
   const userId = ref(null)
   const nickname = ref('')
   const role = ref('')
@@ -17,11 +16,9 @@ export const useUserStore = defineStore('user', () => {
   const token = ref(null)
   const restricted = ref(false)
 
-  /** 统一头像访问地址：相对路径自动拼接后端 API Origin，绝对 URL 保持不变。 */
+  /** 统一头像访问地址：上传文件走同源代理的相对路径，旧数据里的本机绝对地址也会转回相对路径（K6）。 */
   function normalizeAvatarUrl(url) {
-    if (!url) return null
-    if (/^https?:\/\//i.test(url)) return url
-    return `${API_ORIGIN}${url}`
+    return assetUrl(url) || null
   }
 
   /**
@@ -92,16 +89,23 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
+  /**
+   * 解析登录/注册成功响应（API 契约 2.2、2.3）：{ token, role, user: { id, nickname, avatar, creditScore, restricted } }。
+   * 旧实现读取顶层 userId，契约收敛后会得到 undefined，导致所有“是否本人”判断失效。
+   */
+  function applyLoginResponse(data) {
+    const u = data?.user
+    if (!data?.token || !u?.id) return false
+    login({ id: u.id, nickname: u.nickname, role: data.role || 'user', avatar: u.avatar, creditScore: u.creditScore ?? 100, restricted: u.restricted }, data.token)
+    return true
+  }
+
   async function loginWithPassword(account, password) {
     const { default: http } = await import('@/common/http')
     try {
       const res = await http.post('/auth/login/password', { account, password })
-      if (res.data.code === 200) {
-        const d = res.data.data
-        login({ id: d.userId, nickname: d.nickname, role: d.role || 'user', avatar: null, creditScore: d.creditScore ?? 100, restricted: d.restricted }, d.token)
-        return true
-      }
-    } catch { /* handled by interceptor */ }
+      return applyLoginResponse(res.data.data)
+    } catch { /* 拦截器已提示错误 */ }
     return false
   }
 
@@ -109,21 +113,29 @@ export const useUserStore = defineStore('user', () => {
     const { default: http } = await import('@/common/http')
     try {
       const res = await http.post('/auth/login/sms', { phone, code })
-      if (res.data.code === 200) {
-        const d = res.data.data
-        login({ id: d.userId, nickname: d.nickname, role: d.role || 'user', avatar: null, creditScore: d.creditScore ?? 100, restricted: d.restricted }, d.token)
-        return true
-      }
-    } catch { /* handled by interceptor */ }
+      return applyLoginResponse(res.data.data)
+    } catch { /* 拦截器已提示错误 */ }
     return false
   }
 
-  async function register(studentId, phone, password, smsCode) {
+  /**
+   * 注册（API 契约 2.2）：学号、真实姓名、手机号、验证码、密码、昵称必填，学院可选。
+   * 注册成功即返回登录凭证，直接进入登录态。
+   */
+  async function register(form) {
     const { default: http } = await import('@/common/http')
     try {
-      const res = await http.post('/auth/register', { studentId, name: studentId, phone, password, smsCode })
-      if (res.data.code === 200) return true
-    } catch { /* handled by interceptor */ }
+      const res = await http.post('/auth/register', {
+        studentId: form.studentId,
+        name: form.name,
+        phone: form.phone,
+        code: form.code,
+        password: form.password,
+        nickname: form.nickname,
+        college: form.college || undefined
+      })
+      return applyLoginResponse(res.data.data)
+    } catch { /* 拦截器已提示错误 */ }
     return false
   }
 

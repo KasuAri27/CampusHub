@@ -50,7 +50,7 @@ public abstract class Task {
     private BigDecimal reward;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, columnDefinition = "ENUM('pending_review','published','in_progress','completed','cancelled')")
+    @Column(nullable = false, columnDefinition = "ENUM('pending_review','published','in_progress','completed','cancelled','rejected')")
     private TaskStatus status = TaskStatus.pending_review;
 
     /** 所属校区 */
@@ -75,12 +75,22 @@ public abstract class Task {
     @Column(name = "update_time", nullable = false)
     private LocalDateTime updatedAt;
 
+    /** 最近一次驳回理由（最长 200 字），仅 rejected 状态有值；重新提交时清空。 */
+    @Column(name = "reject_reason", length = 200)
+    private String rejectReason;
+
+    /** 最近一次被驳回的业务时间；重新提交时清空。 */
+    @Column(name = "rejected_at")
+    private LocalDateTime rejectedAt;
+
     public enum TaskStatus {
         pending_review,
         published,
         in_progress,
         completed,
-        cancelled
+        cancelled,
+        /** 管理员驳回，等待发布者修改后重新提交（2026-11-20，TODO §1.1）；历史上被驳回而置为 cancelled 的数据不转换。 */
+        rejected
     }
 
     @PrePersist

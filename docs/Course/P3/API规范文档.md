@@ -51,7 +51,11 @@
 | 404 | Not Found | 请求的资源不存在 |
 | 409 | Conflict | 并发状态冲突（如需求已被他人抢接、重复评价） |
 | 422 | Unprocessable Entity | 参数 Bean Validation 校验不通过 |
+| 429 | Too Many Requests | 请求过于频繁（如验证码重复发送） |
 | 500 | Internal Server Error | 服务器内部异常 |
+| 502 / 503 | Bad Gateway / Service Unavailable | 外部渠道（支付、邮件）调用失败或暂不可用 |
+
+> 唯一约束或并发冲突（数据库层）统一返回 409，提示刷新后核对；不要把 409 当作操作成功。
 
 ---
 
@@ -117,6 +121,8 @@
 
 ## 3. 需求任务模块 (`/v1/tasks`)
 
+- **需求状态**：`pending_review`（待审核）→ 管理员通过 → `published`（待接单）→ 接单 → `in_progress` → `completed`；管理员驳回 → `rejected`（被驳回）→ 发布者修改后重新提交（3.6）→ `pending_review`；可取消为 `cancelled`。`rejected` 于 2026-11-20 批准新增（TODO §1.1），此前驳回直接置为 `cancelled`，历史数据不转换。
+
 ### 3.1 发布需求
 - **URL**：`/v1/tasks`
 - **Method**：`POST`
@@ -124,14 +130,24 @@
 - **请求参数**：
   | 字段名 | 类型 | 必填 | 说明 |
   | --- | --- | --- | --- |
-  | categoryId | Integer | 是 | 需求分类 ID |
-  | title | String | 是 | 需求标题（≤30字） |
-  | description | String | 是 | 需求详细描述 |
-  | reward | BigDecimal | 否 | 报酬金额（组队招募固定为 0） |
-  | campus | String | 是 | 校区（鼓楼 / 仙林 / 浦口 / 苏州） |
-  | location | String | 否 | 线下地点或送达地址 |
-  | deadline | String | 是 | 截止时间（ISO 8601 格式，如 `2026-05-01T12:00:00`） |
-- **成功响应**：返回生成的 `TaskDTO`，状态为 `pending_review`。
+  | categoryId | Integer | 是 | 需求分类 ID（发布类型与分类的对应关系见下） |
+  | taskType | String | 是 | 需求类型：`RUNNING` 跑腿、`TUTORING` 辅导、`FLEA` 二手、`TEAM` 组队、`CONSULTING` 咨询 |
+  | title | String | 是 | 需求标题（5–50 字） |
+  | description | String | 是 | 需求详细描述（10–500 字） |
+  | reward | BigDecimal | 否 | 报酬金额（≥0）。组队不填，库内为空、订单金额为 0；咨询可为 0 表示免费 |
+  | campus | String | 是 | 校区（鼓楼校区 / 仙林校区 / 浦口校区 / 苏州校区） |
+  | location | String | 否 | 线下地点或送达地址（组队活动地点、线下咨询地点） |
+  | deadline | String | 是 | 截止时间（ISO 8601，不带时区，按 Asia/Shanghai 解释，须晚于当前时间） |
+- **类型专属字段**（2026-11 对齐现行实现）：
+  | 类型 | 字段 | 说明 |
+  | --- | --- | --- |
+  | RUNNING | `pickupLocation`、`deliveryLocation`（必填），`pickupCode`（可选），`expressReward`（必填，作为报酬） | 跑腿取件/送达地点与报酬 |
+  | TUTORING | `subject`、`pricePerHour`、`durationHours`（0.01–1000，最多两位小数）、`tutoringLocation` | 总价 = 时薪 × 时长，按分四舍五入，接单时冻结为订单金额 |
+  | FLEA | `tradeMode`（`SELL` 出售 / `BUY` 求购）、`itemPrice`（必填，≥0） | 出售：接单人付款给发布者；求购：发布者付款给接单人 |
+  | TEAM | `maxMembers`（人数上限，含发起人） | 无偿招募，审核通过后自动建群 |
+  | CONSULTING | `consultingMode`（`ONLINE` / `OFFLINE`） | 线下时可填 `location` |
+- **类型与分类对应**：当前发布入口固定使用分类 1–5 分别对应 RUNNING、TUTORING、FLEA、TEAM、CONSULTING（种子数据）。
+- **成功响应**：HTTP 201，返回生成的 `TaskDTO`，状态为 `pending_review`，并通知管理员审核。
 
 ### 3.2 广场需求列表多维检索
 - **URL**：`/v1/tasks`
@@ -141,10 +157,10 @@
   | 参数名 | 类型 | 必填 | 说明 |
   | --- | --- | --- | --- |
   | categoryId | Integer | 否 | 分类过滤 |
-  | status | String | 否 | 任务状态（默认查询 `published`） |
+  | status | String | 否 | 任务状态（默认查询 `published`）；`pending_review`、`rejected` 只有发布者本人与管理员可见 |
   | keyword | String | 否 | 标题与描述模糊搜索 |
   | campus | String | 否 | 校区过滤 |
-  | sort | String | 否 | 排序规则：`latest`（最新发布）、`reward_desc`（报酬最高）、`deadline_asc`（即将截止） |
+  | sort | String | 否 | 排序规则：`latest`（最新发布）、`reward`（报酬最高，2026-11 由 `reward_desc` 改为与实现一致）、`deadline_asc`（即将截止） |
   | page | Integer | 否 | 页码（从 1 开始，默认 1） |
   | page_size | Integer | 否 | 每页数量（默认 20） |
 - **成功响应**：返回 `PageResult<TaskDTO>`。
@@ -153,17 +169,31 @@
 - **URL**：`/v1/tasks/{id}`
 - **Method**：`GET`
 - **认证**：否
+- **成功响应**：`TaskDTO`，含基础字段、`publisher`（`userId`、`nickname`、`avatar`、`creditScore`）、3.1 所列类型专属字段，组队另含 `chatGroupId`（群聊会话 ID）。
+- **可见性**（2026-11-20 批准）：
+  - `pending_review`、`rejected` 状态的需求只对发布者本人与管理员返回，其他人返回 404。
+  - `pickupCode` 只返回给发布者与该需求的订单参与者，其他人（含未登录）为空。
+  - `rejectReason`（最近一次驳回理由）只返回给发布者与管理员。
 
 ### 3.4 我发布的需求
 - **URL**：`/v1/tasks/mine/published`
 - **Method**：`GET`
 - **认证**：是
 - **Query 参数**：`page`, `page_size`
+- **说明**：包含本人全部状态的需求，被驳回的需求带 `rejectReason`。
 
 ### 3.5 删除/撤回需求
 - **URL**：`/v1/tasks/{id}`
 - **Method**：`DELETE`
-- **认证**：是（仅限发布者本人；若已产生订单记录则软取消以保留审计，无历史订单则物理移除）
+- **认证**：是（仅限发布者本人；若已产生订单记录则软取消以保留审计，无历史订单则物理移除；被驳回的需求没有订单，删除即物理移除）
+
+### 3.6 修改并重新提交（2026-11-20 批准，TODO §1.1）
+- **URL**：`/v1/tasks/{id}`
+- **Method**：`PUT`
+- **认证**：是（仅限发布者本人，信用分需 ≥ 70）
+- **前置状态**：`pending_review` 或 `rejected`，其他状态返回 409。
+- **请求体**：同 3.1；`taskType`、`categoryId` 必须与原需求一致（需求按类型分表存储，不能换类型），否则 400；截止时间须晚于当前时间。
+- **成功响应**：返回更新后的 `TaskDTO`，状态置为 `pending_review`，清空 `rejectReason`，并通知管理员重新审核。
 
 ---
 
@@ -177,30 +207,33 @@
   | 参数名 | 类型 | 必填 | 说明 |
   | --- | --- | --- | --- |
   | taskId | Long | 是 | 待承接的需求 ID |
-- **机制与成功响应**：后端通过数据库排他行锁抢接需求，成功后原需求置为 `in_progress`，生成 `OrderDTO`（状态为 `in_progress`）。若已被他人接单则抛出 409 冲突。
+- **机制与成功响应**：后端先对需求加排他行锁再生成订单，返回 `OrderDTO`（状态为 `in_progress`）。普通需求接单后置为 `in_progress`；组队需求每加入一人生成一张订单，满员（含发起人）后才置为 `in_progress`。已截止、已被接走或本人已参与时返回 400/409。
+- **金额与付款方向**：接单时冻结 `amountDue`，并确定 `payerId`（付款人，同时是验收方）与 `payeeId`（收款人，同时是提交完成的一方）。一般由发布者付款；二手出售由接单人（买家）付款给发布者；组队与免费需求 `paymentStatus` 为 `not_required`。
 
 ### 4.2 订单详情与历史
 - **获取订单详情**：`GET /v1/orders/{orderId}`（仅订单参与双方或管理员可见）
 - **根据任务查订单**：`GET /v1/orders/task/{taskId}`
 - **我参与的所有订单**：`GET /v1/orders/mine`（同时包含我作为发布者与接单人的订单）
 - **我承接的订单**：`GET /v1/orders/my-accepted?status=...`
+- **OrderDTO 主要字段**：`orderId`、`taskId`、`title`、`orderStatus`（`in_progress`/`awaiting_acceptance`/`completed`/`cancelled`）、`paymentStatus`（`not_required`/`unpaid`/`paid`）、`settlementStatus`（`not_required`/`pending`/`recorded`）、`requesterId`/`providerId`（发布者/接单人）、`payerId`/`payeeId`、`amountDue`，以及 `acceptanceDueAt`、`paymentDueAt`、`escalationDueAt`、`reviewEligibleAt` 等期限字段和 `disputed`、`hasReview`。`taskType` 只区分 `TEAM`、`FLEA`、`SERVICE`。履约、付款、结算三态分离，`completed` 不代表已付款。
 
 ### 4.3 服务方提交完工
 - **URL**：`/v1/orders/{orderId}/submit-completion`
 - **Method**：`POST`
-- **认证**：是（仅限服务承接方）
-- **说明**：服务方完成履约后提交，订单状态流转为待验收 `awaiting_acceptance`，启动 24 小时自动验收计时。
+- **认证**：是（仅限订单收款方 `payeeId`；二手出售时为发布者）
+- **说明**：收款方完成履约后提交，订单状态流转为待验收 `awaiting_acceptance`，启动 24 小时自动验收计时。
 
 ### 4.4 需求方确认完成 / 验收
 - **URL**：`/v1/orders/{orderId}/complete`
 - **Method**：`POST`
-- **认证**：是（仅限需求发布方）
-- **说明**：需求方主动确认验收，订单状态置为 `completed`，生成待支付状态（`unpaid`，有偿订单启动 1 小时正常付款倒计时）。
+- **认证**：是（仅限订单付款方 `payerId`，即验收方；二手出售时为接单人）
+- **说明**：付款方主动确认验收（或提交后 24 小时无异议自动验收），订单状态置为 `completed`；有偿订单进入 `unpaid` 并启动 1 小时付款期，逾期一次性扣 10 分，再过 24 小时未付款转管理员处置。
 
 ### 4.5 取消订单
 - **URL**：`/v1/orders/{orderId}/cancel`
 - **Method**：`POST`
-- **认证**：是（仅订单双方在进行中且无付款无争议时允许取消）
+- **认证**：是（仅订单双方在进行中且无争议时允许取消）
+- **说明**：接单人退出且需求未过截止时间时，需求回到 `published` 重新开放接单；发布者取消组队需求时级联取消所有进行中的成员订单（存在待验收或争议成员时返回 409）。
 
 ---
 
@@ -215,7 +248,7 @@
 ### 5.2 创建支付订单并获取二维码
 - **URL**：`/v1/payments/orders/{orderId}`
 - **Method**：`POST`
-- **认证**：是（仅限待付款的需求方调用）
+- **认证**：是（仅限订单付款方 `payerId` 调用，订单须已验收且待付款）
 - **Body 参数**：
   ```json
   {
@@ -228,21 +261,23 @@
     "code": 200,
     "message": "success",
     "data": {
-      "attemptId": 1001,
       "orderId": 501,
+      "outTradeNo": "...",
       "channel": "WECHAT",
-      "qrCode": "weixin://wxpay/bizpayurl?pr=...",
       "amount": 25.00,
-      "status": "PENDING",
-      "expireAt": "2026-05-01T15:30:00"
+      "codeUrl": "weixin://wxpay/bizpayurl?pr=...",
+      "status": "PENDING"
     }
   }
   ```
+
+- **说明**：`codeUrl` 为渠道收款码内容，前端在本地生成二维码；同一订单同时只有一张有效支付单，仍可支付时不能换渠道重开，渠道确认关闭后才可重新下单。
 
 ### 5.3 查询订单支付状态
 - **URL**：`/v1/payments/orders/{orderId}`
 - **Method**：`GET`
 - **认证**：是（订单参与双方或管理员）
+- **成功响应**：与 5.2 相同结构；`status` 为 `PENDING` / `PAID` / `CLOSED`，未确认付款时会先向渠道查单补偿。
 
 ### 5.4 微信 Native 异步通知回调
 - **URL**：`/v1/payments/notify/wechat`
@@ -257,7 +292,9 @@
 - **响应**：文本 `"success"`
 
 ### 5.6 管理员线下结算登记与凭证管理 (`/v1/admin/finance`)
-- **待结算订单列表**：`GET /v1/admin/finance/orders?page=1`
+- **订单列表**：`GET /v1/admin/finance/orders?page=1`（全部订单按 ID 倒序，每页固定 50 笔，返回 `OrderDTO` 数组，不含总数）
+- **争议裁决**：`POST /v1/admin/finance/orders/{id}/resolve`，Body：`{ "amount": 20.00, "paymentHours": 24, "reason": "..." }`。裁定应付金额（0 至原金额，最多两位小数）与付款期限（1–168 小时）；已签发待支付或已付款的支付单时不能改金额，须先在渠道关单或退款核对。
+- **逾期处置**：`POST /v1/admin/finance/orders/{id}/penalty`，Body：`{ "operationId": "op-1", "deduction": 5, "ban": false, "reason": "..." }`。在自动扣 10 分之外追加扣分或封禁付款人；`operationId` 规则同第 9 节调分，重试不重复处罚。
 - **核对历史支付单**：`GET /v1/admin/finance/orders/{id}/payments`
 - **登记人工打款凭证**：
   - **URL**：`POST /v1/admin/finance/orders/{id}/settlement`
@@ -304,6 +341,10 @@
 - **认证**：是（需具备会话参与权限）
 - **Query 参数**：`page`（默认 1）, `size`（默认 30）
 
+### 7.2.1 会话详情与发送消息
+- **会话详情**：`GET /v1/conversations/{id}`
+- **发送消息**：`POST /v1/conversations/{id}/messages`，Body：`{ "content": "...", "msgType": "TEXT" }`；`msgType` 为 `TEXT` 或 `IMAGE`（图片时 `content` 为上传接口返回的地址）。发送后经 WebSocket 推送给会话成员（见第 12 节）。
+
 ### 7.3 标记会话已读
 - **URL**：`/v1/conversations/{id}/read`
 - **Method**：`PUT`
@@ -334,12 +375,41 @@
 
 - **平台运营仪表盘**：`GET /v1/admin/stats`
 - **用户管理与封禁**：
-  - 分页检索：`GET /v1/admin/users?page=1&size=20&keyword=...`
-  - 封禁/解冻：`PUT /v1/admin/users/{id}/status`
-  - 手动调整信用分：`PUT /v1/admin/users/{id}/credit`（Body: `{ "delta": -5 }`）
+  - 分页检索：`GET /v1/admin/users?page=1&page_size=20&keyword=...&role=user`（keyword 匹配学号、邮箱、姓名；role 取 `user` / `admin`）
+  - 用户详情：`GET /v1/admin/users/{id}`
+  - 封禁/解冻：`PUT /v1/admin/users/{id}/status`（切换正常 1 / 封禁 0；封禁后为受限登录，只能处理本人订单、付款、投诉与账号安全）
+  - 手动调整信用分：`PUT /v1/admin/users/{id}/credit`（Body: `{ "delta": -5, "operationId": "op-123" }`）
+    - `operationId` 可选，字母/数字/下划线/连字符，≤36 字符；同一编号重复提交只生效一次且不重复通知，同编号但参数不一致返回 409；缺省时服务端生成，每次调用独立生效。
+    - 信用分已达 100 时继续上调不再返回 400，按 [0,100] 钳制后记录流水。
 - **需求审批与驳回**：
-  - 待审需求分页：`GET /v1/admin/tasks?status=pending_review`
+  - 需求分页：`GET /v1/admin/tasks?page=1&page_size=20&status=pending_review&keyword=...`（keyword 匹配标题；`taskType` 只区分 `TEAM`、`FLEA`、`SERVICE`）
+  - 删除需求：`DELETE /v1/admin/tasks/{id}`（已有有效付款或争议订单的需求不能删除）
   - 审核通过：`PUT /v1/admin/tasks/{id}/approve`
-  - 审核驳回：`PUT /v1/admin/tasks/{id}/reject`（Body: `{ "reason": "信息不合规" }`）
+  - 审核驳回：`PUT /v1/admin/tasks/{id}/reject`（Body: `{ "reason": "信息不合规" }`）。驳回后状态为 `rejected`（2026-11-20 起，原为 `cancelled`），理由不超过 200 字，保存为 `rejectReason` 并通知发布者；需求列表可按 `status=rejected` 筛选，管理端 DTO 同样带 `rejectReason`。
 - **分类维护**：`GET /v1/admin/categories`, `POST /v1/admin/categories`, `PUT /v1/admin/categories/{id}`, `DELETE /v1/admin/categories/{id}`
-- **系统广播推送**：`POST /v1/admin/notifications`
+- **系统通知**：
+  - 通知记录：`GET /v1/admin/notifications?page=1&page_size=20`（全平台通知，含系统自动发出的）
+  - 发送：`POST /v1/admin/notifications`，Body：`{ "receiverId": 1, "title": "...", "content": "...", "type": "SYSTEM" }`；`receiverId` 为空时向全部账号广播
+- **会话监管**（只读）：`GET /v1/admin/conversations?page=1&page_size=20&convType=TEAM_GROUP`，`GET /v1/admin/conversations/{id}/messages?page=1&page_size=50`（含已撤回消息原文）
+- **仪表盘字段**：`totalUsers`、`bannedUsers`、`totalTasks`、`publishedTasks`、`inProgressTasks`、`completedTasks`、`totalOrders`（历史命名，实际为已取消需求数）、`todayNewTasks`、`totalConversations`、`totalMessages`、`todaysMessages`
+
+---
+
+## 10. 订单投诉与争议 (`/v1/complaints`)（2026-11 补录现行接口）
+
+- **提交投诉**：`POST /v1/complaints`，Body：`{ "orderId": 9, "reason": "服务未完成", "description": "...", "imageUrl": "/api/uploads/..." }`
+  - 认证：订单双方；被投诉人由服务端按订单另一方确定，传入的 `targetId` 必须与之一致；同一订单同一人只能投诉一次（重复返回 409）。
+  - 付款方以“服务未完成”或“质量不符”投诉时，订单置为争议中，暂停自动验收、扣分与升级计时，等待管理员在 5.6 裁决；收款方的催款投诉不暂停付款追缴。
+- **按订单查询**：`GET /v1/complaints/order/{orderId}`；**投诉详情**：`GET /v1/complaints/{id}`（订单当事人与管理员可见）。
+
+## 11. 文件上传 (`/v1/files`)（2026-11 补录现行接口）
+
+- **上传**：`POST /v1/files/upload`，`multipart/form-data`，字段 `file`（单个文件不超过 5MB）。
+- **允许类型**（2026-11-20 批准）：仅 jpg、jpeg、png、webp，扩展名与 Content-Type 同时校验，文件名由服务端生成；其他类型或无扩展名返回 400。上传文件的响应带 `X-Content-Type-Options: nosniff`。
+- **成功响应**：`{ "url": "/api/uploads/<随机文件名>" }`。返回相对路径，前端经同源代理访问；部署时须保证 `/api/uploads/**` 映射到后端静态资源。
+- 结算凭证不走本接口，见 5.6（私有存储、仅管理员可下载）。
+
+## 12. 实时消息 WebSocket（2026-11 补录现行接口）
+
+- **地址**：`/api/ws/chat?token=<JWT>`（浏览器 WebSocket 不能自定义请求头，令牌放在查询参数；仅状态正常的账号可连接）。
+- **消息类型**：客户端发送 `PING`（心跳，约 30 秒一次）、`SEND`；服务端推送 `PONG`、`MSG`（新消息）、`RECALL`（撤回）、`ERROR`。载荷形如 `{ "type": "MSG", "convId": 1, "message": { ...MessageDTO } }`。

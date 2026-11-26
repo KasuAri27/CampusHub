@@ -1,0 +1,204 @@
+/*
+ * CampusHub 设计令牌与全局基础样式。
+ * 视觉方向：校园导视牌——松绿底牌、杏黄标示、DIN 风格数字；其余界面保持安静，靠细边框分层。
+ * 旧组件引用的变量名（--primary、--bg-secondary 等）保留并重新取值，未重写的页面也随之统一。
+ */
+:root {
+  /* —— 色板 —— */
+  --pine: #0f5b46;          /* 导视牌底色：广场标题牌、导航选中、管理侧栏 */
+  --pine-deep: #0a4434;
+  --mint: #16805f;          /* 主操作色，白字对比度 4.9:1 */
+  --mint-hover: #126b50;
+  --mint-wash: #e6f3ee;     /* 选中、悬停底 */
+  --mint-line: #bfe0d3;
+  --paper: #f5f7f6;         /* 页面底 */
+  --surface: #ffffff;
+  --ink: #1e2a26;           /* 正文 */
+  --ink-2: #4e5e58;         /* 次要文字 */
+  --ink-3: #697872;         /* 弱化文字，白底对比度约 4.5:1，满足小字 AA */
+  --line: #dde5e1;
+  --line-strong: #c6d2cd;
+  --apricot: #f2b544;       /* 导视黄：报酬牌、待处理提示 */
+  --apricot-wash: #fdf3dc;
+  --amber-ink: #7a4a00;     /* 杏黄底上的文字 */
+  --info: #2f6fb3;
+  --info-wash: #e8f0fa;
+  --danger: #c2412d;
+  --danger-wash: #fbeae6;
+
+  /* —— 字体 —— */
+  --font-sans: "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  /* 数字与字标：Windows 自带 Bahnschrift（DIN 风格），苹果回落 DIN Alternate */
+  --font-num: "Bahnschrift", "DIN Alternate", "DIN Pro", "Barlow", var(--font-sans);
+
+  /* —— 字号阶梯 —— */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 24px;
+  --fs-3xl: 32px;
+
+  /* —— 圆角层级：导视牌偏方正，卡片适中，胶囊仅用于标签 —— */
+  --r-sign: 4px;
+  --r-card: 10px;
+  --r-pill: 999px;
+
+  --shadow-pop: 0 8px 24px rgba(15, 50, 40, 0.12);
+  --header-h: 60px;
+  --content-w: 1200px;
+
+  /* —— 旧变量名兼容层 —— */
+  --primary: var(--mint);
+  --primary-light: #3f9c7f;
+  --primary-dark: var(--pine);
+  --accent: var(--apricot);
+  --accent-light: #f6ca72;
+  --accent-dark: var(--amber-ink);
+  --bg-primary: var(--paper);
+  --bg-secondary: var(--surface);
+  --bg-tertiary: #eef2f0;
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink-2);
+  --text-muted: var(--ink-3);
+  --success: var(--mint);
+  --warning: #c98a12;
+  --error: var(--danger);
+  --border-color: var(--line);
+  --shadow-sm: none;
+  --shadow-md: 0 1px 2px rgba(15, 50, 40, 0.06);
+  --shadow-lg: var(--shadow-pop);
+  --shadow-xl: var(--shadow-pop);
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: var(--r-card);
+  --radius-xl: var(--r-card);
+  --radius-full: var(--r-pill);
+  --transition-fast: 120ms ease;
+  --transition-base: 180ms ease;
+  --transition-slow: 260ms ease;
+
+  /* —— Element Plus 主题映射：用变量换色，不再用 !important 覆盖组件 —— */
+  --el-color-primary: #16805f;
+  --el-color-primary-light-3: #5ca68f;
+  --el-color-primary-light-5: #8bc0af;
+  --el-color-primary-light-7: #b9d9cf;
+  --el-color-primary-light-8: #d0e6df;
+  --el-color-primary-light-9: #e8f2ef;
+  --el-color-primary-dark-2: #12664c;
+  --el-color-success: #16805f;
+  --el-color-success-light-3: #5ca68f;
+  --el-color-success-light-5: #8bc0af;
+  --el-color-success-light-7: #b9d9cf;
+  --el-color-success-light-8: #d0e6df;
+  --el-color-success-light-9: #e8f2ef;
+  --el-color-success-dark-2: #12664c;
+  --el-color-warning: #c98a12;
+  --el-color-warning-light-3: #d9ad59;
+  --el-color-warning-light-5: #e4c589;
+  --el-color-warning-light-7: #efdcb8;
+  --el-color-warning-light-8: #f4e8d0;
+  --el-color-warning-light-9: #faf3e7;
+  --el-color-warning-dark-2: #a16e0e;
+  --el-color-danger: #c2412d;
+  --el-color-danger-light-3: #d47a6c;
+  --el-color-danger-light-5: #e0a096;
+  --el-color-danger-light-7: #edc6c0;
+  --el-color-danger-light-8: #f3d9d5;
+  --el-color-danger-light-9: #f9ecea;
+  --el-color-danger-dark-2: #9b3424;
+  --el-color-error: #c2412d;
+  --el-text-color-primary: var(--ink);
+  --el-text-color-regular: var(--ink-2);
+  --el-text-color-secondary: var(--ink-3);
+  --el-border-color: var(--line-strong);
+  --el-border-color-light: var(--line);
+  --el-border-color-lighter: #e8eeeb;
+  --el-fill-color-light: #f2f5f4;
+  --el-fill-color-lighter: #f7f9f8;
+  --el-bg-color-page: var(--paper);
+  --el-border-radius-base: 6px;
+  --el-font-family: var(--font-sans);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 { margin: 0; line-height: 1.3; color: var(--ink); }
+p { margin: 0; }
+a { color: var(--mint); }
+
+/* 键盘焦点必须可见；鼠标点击不出现焦点框 */
+:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+/* 数字统一用等宽 DIN 风格，金额、信用分、计数对齐 */
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+/* 页面内容容器：所有页面左对齐、同一最大宽度 */
+.page {
+  max-width: var(--content-w);
+  margin: 0 auto;
+}
+
+/* 通用白底面板：靠细边框分层，不叠阴影 */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+
+/* 文本按钮式返回链接 */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.back-link:hover { color: var(--mint); }
+.back-link svg { width: 16px; height: 16px; }
+
+/* Element Plus 细节对齐：卡片不叠阴影，标签用胶囊 */
+.el-card {
+  border-color: var(--line);
+  border-radius: var(--r-card);
+  --el-card-padding: 20px;
+}
+.el-card.is-always-shadow, .el-card.is-hover-shadow:hover { box-shadow: none; }
+.el-button { font-weight: 500; }
+.el-tag { border-radius: var(--r-pill); }
+.el-dialog { border-radius: var(--r-card); }
+.el-table { --el-table-header-bg-color: #f4f7f6; --el-table-header-text-color: var(--ink-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

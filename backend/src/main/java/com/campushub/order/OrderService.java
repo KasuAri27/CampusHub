@@ -76,7 +76,7 @@ public class OrderService {
         if (provider.getStatus() != 1) throw new BusinessException(403, "账号已被禁用");
         // 管理员负责监管与争议裁决，不能作为交易一方参与订单。
         if (provider.getRole() == User.Role.admin) throw new BusinessException(403, "管理员不能接单");
-        if (provider.getCreditScore() < 70) {
+        if (provider.getCreditScore() < OrderRules.MIN_CREDIT_TO_TRADE) {
             throw new BusinessException(403, "您的信用分低于70分，暂无接单权限！");
         }
 
@@ -193,7 +193,9 @@ public class OrderService {
     }
 
     public OrderDTO toDTO(Order order) {
-        Task task = order.getTask();
+        // Order.task 是懒加载关联：列表类查询拿到的是 Hibernate 代理，代理类不是 TeamingTask/SecondHandTask 的实例，
+        // 直接 instanceof 会让组队与二手订单恒被判为 SERVICE。先还原成真实子类再判断类型。
+        Task task = (Task) org.hibernate.Hibernate.unproxy(order.getTask());
         return OrderDTO.builder()
                 .orderId(order.getId())
                 .orderStatus(order.getStatus().name())

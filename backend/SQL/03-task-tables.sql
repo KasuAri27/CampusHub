@@ -40,7 +40,8 @@ CREATE TABLE categories (
 --   RUNNING → t_task_running   TUTORING → t_task_tutoring   FLEA → t_task_flea
 --   TEAM    → t_task_team      CONSULTING → t_task_consulting
 -- 状态流转：pending_review --审核通过--> published --接单--> in_progress --验收--> completed
---           审核驳回、发布者取消、截止仍无人接单（定时任务）都会进入 cancelled。
+--           审核驳回 → rejected（保留驳回理由）--发布者修改后重新提交--> pending_review；
+--           发布者取消、截止仍无人接单（定时任务）进入 cancelled。2026-11-20 起驳回不再直接置 cancelled，历史数据不转换。
 --           组队需求未满员时保持 published，允许继续有人加入。
 -- reward 是本需求的约定总价，接单时原样冻结到 orders.amount_due：
 --   RUNNING=跑腿费，TUTORING=时薪×时长（分位四舍五入），FLEA=约定成交价，
@@ -55,7 +56,7 @@ CREATE TABLE tasks (
     description     VARCHAR(500)    NOT NULL                 COMMENT '详细描述',
     reward          DECIMAL(10,2)   DEFAULT NULL             COMMENT '约定总价（元），规则见表注释',
     campus          VARCHAR(20)     DEFAULT NULL             COMMENT '校区：鼓楼校区/仙林校区/浦口校区/苏州校区',
-    status          ENUM('pending_review','published','in_progress','completed','cancelled')
+    status          ENUM('pending_review','published','in_progress','completed','cancelled','rejected')
                                     NOT NULL DEFAULT 'pending_review' COMMENT '需求状态，流转见表注释',
     location        VARCHAR(100)    DEFAULT NULL             COMMENT '展示用地点；跑腿为“取货地 → 送达地”',
     deadline        DATETIME(6)     DEFAULT NULL             COMMENT '截止时间：过了截止仍未接单会被自动取消，也不能再接单',
@@ -63,6 +64,8 @@ CREATE TABLE tasks (
     published_at    DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '发布时间；审核通过时刷新为通过时刻，广场按它倒序',
     create_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
     update_time     DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '最后修改时间；群聊清理以它作为任务结束时刻',
+    reject_reason   VARCHAR(200)    DEFAULT NULL             COMMENT '最近一次驳回理由；仅 rejected 状态有值，重新提交后清空',
+    rejected_at     DATETIME(6)     DEFAULT NULL             COMMENT '最近一次被驳回的时间；重新提交后清空',
     PRIMARY KEY (id),
     KEY idx_tasks_requester_id (requester_id),
     KEY idx_tasks_category_id (category_id),
