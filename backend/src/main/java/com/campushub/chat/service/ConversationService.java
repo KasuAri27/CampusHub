@@ -9,8 +9,8 @@ import com.campushub.chat.repository.ConversationMemberRepository;
 import com.campushub.chat.repository.ConversationRepository;
 import com.campushub.chat.repository.MessageRepository;
 import com.campushub.common.BusinessException;
-import com.campushub.task.Task;
-import com.campushub.task.TaskRepository;
+import com.campushub.task.TaskChatView;
+import com.campushub.task.TaskReadService;
 import com.campushub.user.User;
 import com.campushub.user.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -20,18 +20,22 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
-/** 会话核心业务服务，涵盖会话列表拉取、未读计数统计、成员进退群、群解散与保留机制。 */
+/**
+ * 会话核心业务服务，涵盖会话列表拉取、未读计数统计、成员进退群、群解散与保留机制。
+ * 需求信息只经 {@link TaskReadService} 的只读视图读取（模块契约 §3.6），不引用需求实体或其仓储。
+ */
 public class ConversationService {
 
     private final ConversationRepository convRepo;
     private final ConversationMemberRepository memberRepo;
     private final MessageRepository msgRepo;
     private final UserRepository userRepo;
-    private final TaskRepository taskRepo;
+    private final TaskReadService taskReadService;
 
     /** 查询当前用户可见的所有会话，聚合各会话最新一条发言、未读消息数及解散操作权限。 */
     @Transactional(readOnly = true)
@@ -41,6 +45,12 @@ public class ConversationService {
                 .filter(c -> !Boolean.TRUE.equals(c.getIsDeleted())) // 过滤掉已删除的
                 .toList();
         Map<Long, User> userCache = new java.util.HashMap<>();
+        // 关联需求的会话一次批量取视图，避免逐条查需求；不存在的需求不在结果里，按无需求信息处理。
+        Map<Long, TaskChatView> taskViews = taskReadService.findChatViews(convs.stream()
+                .filter(c -> "TEAM_GROUP".equals(c.getConvType()) || "TASK_PRIVATE".equals(c.getConvType()))
+                .map(Conversation::getTaskId)
+                .filter(Objects::nonNull)
+                .toList());
 
         List<ConversationDTO> result = new ArrayList<>();
         for (Conversation c : convs) {
@@ -96,12 +106,12 @@ public class ConversationService {
             int keepGroup = c.getKeepGroup() != null ? c.getKeepGroup() : -1;
             if (("TEAM_GROUP".equals(c.getConvType()) || "TASK_PRIVATE".equals(c.getConvType()))
                     && c.getTaskId() != null) {
-                Task task = taskRepo.findById(c.getTaskId()).orElse(null);
+                TaskChatView task = taskViews.get(c.getTaskId());
                 if (task != null) {
-                    taskStatus = task.getStatus().name();
+                    taskStatus = task.status();
                     boolean isExpired = "completed".equals(taskStatus)
                             || "cancelled".equals(taskStatus)
-                            || (task.getDeadline() != null && task.getDeadline().isBefore(LocalDateTime.now()));
+                            || (task.deadline() != null && task.deadline().isBefore(LocalDateTime.now()));
                     boolean notConfirmed = c.getKeepGroup() == null || c.getKeepGroup() == 0;
 
                     if ("TASK_PRIVATE".equals(c.getConvType())) {
@@ -112,7 +122,7 @@ public class ConversationService {
                         if (c.getOwnerId() != null) {
                             isOwner = c.getOwnerId().equals(userId);
                         } else {
-                            Long requesterId = (task.getRequester() != null) ? task.getRequester().getId() : null;
+                            Long requesterId = task.requesterId();
                             isOwner = requesterId != null && requesterId.equals(userId);
                         }
                     }
@@ -267,9 +277,10 @@ public class ConversationService {
                 return conv.getOwnerId().equals(userId);
             }
             if (conv.getTaskId() != null) {
-                Task task = taskRepo.findById(conv.getTaskId()).orElse(null);
-                if (task != null && task.getRequester() != null) {
-                    return task.getRequester().getId().equals(userId);
+                Long requesterId = taskReadService.findChatView(conv.getTaskId())
+                        .map(TaskChatView::requesterId).orElse(null);
+                if (requesterId != null) {
+                    return requesterId.equals(userId);
                 }
             }
         }

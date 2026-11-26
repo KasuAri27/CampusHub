@@ -2,8 +2,8 @@ package com.campushub.chat.service;
 
 import com.campushub.chat.entity.Conversation;
 import com.campushub.chat.repository.ConversationRepository;
-import com.campushub.task.Task;
-import com.campushub.task.TaskRepository;
+import com.campushub.task.TaskChatView;
+import com.campushub.task.TaskReadService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,12 +14,17 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Component
 @RequiredArgsConstructor
 /**
  * 聊天会话生命周期回收调度器。
  * 任务完成或取消后启动会话淘汰计时；处于未支付、未结算或争议状态的会话予以豁免以保留证据。
+ * 需求状态与订单义务只经 {@link TaskReadService} 读取（模块契约 §3.6），订单状态机由交易核心解释，
+ * 本类只看 {@link TaskChatView#hasOpenObligations()} 的结论。
+ * 整轮扫描仍在单个事务内完成（拆分短事务属并发待办 C4，暂不处理）。
  */
 public class GroupCleanupScheduler {
 
@@ -30,8 +35,7 @@ public class GroupCleanupScheduler {
     private final ConversationRepository convRepo;
     private final ConversationService convService;
     private final MessageService msgService;
-    private final TaskRepository taskRepo;
-    private final com.campushub.order.OrderRepository orders;
+    private final TaskReadService taskReadService;
 
     /**
      * 定时扫描两阶段淘汰：
@@ -45,24 +49,26 @@ public class GroupCleanupScheduler {
         List<Conversation> all = new ArrayList<>();
         all.addAll(convRepo.findByConvType("TEAM_GROUP"));
         all.addAll(convRepo.findByConvType("TASK_PRIVATE"));
+        // 一次批量取全部关联需求的视图（含订单义务结论），不再按会话逐条查需求和订单。
+        Map<Long, TaskChatView> taskViews = taskReadService.findChatViews(all.stream()
+                .map(Conversation::getTaskId)
+                .filter(Objects::nonNull)
+                .toList());
 
         for (Conversation conv : all) {
             if (conv.getTaskId() == null) continue;
-            Task task = taskRepo.findById(conv.getTaskId()).orElse(null);
+            TaskChatView task = taskViews.get(conv.getTaskId());
             if (task == null) continue;
             // 待付款、待结算和争议中的会话不能按旧的演示用生命周期提前下线。
-            if (orders.findByTaskId(task.getId()).stream().anyMatch(order -> order.isDisputed()
-                    || order.getPaymentStatus() == com.campushub.order.Order.PaymentStatus.unpaid
-                    || order.getPaymentStatus() == com.campushub.order.Order.PaymentStatus.paid
-                    && order.getSettlementStatus() != com.campushub.order.Order.SettlementStatus.recorded)) continue;
+            if (task.hasOpenObligations()) continue;
 
             /* 生命周期从需求方确认完成/取消后开始计时，不以截止时间为准 */
-            boolean isExpired = "completed".equals(task.getStatus().name())
-                    || "cancelled".equals(task.getStatus().name());
+            boolean isExpired = "completed".equals(task.status())
+                    || "cancelled".equals(task.status());
 
             if (!isExpired) continue;
 
-            LocalDateTime expiryTime = task.getUpdatedAt();
+            LocalDateTime expiryTime = task.updatedAt();
             if (expiryTime.plusMinutes(LIFECYCLE_MINUTES).isAfter(LocalDateTime.now())) continue;
 
             String typeName = "TEAM_GROUP".equals(conv.getConvType()) ? "群聊" : "私聊";
